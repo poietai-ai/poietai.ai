@@ -73,9 +73,11 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<()> {
         cmd.env(key, value);
     }
 
-    // Pipe stdout so we can read it line by line
+    // Pipe stdout for line-by-line JSONL reading.
+    // Inherit stderr so claude errors appear in the Tauri dev console
+    // and avoid a pipe-buffer deadlock if claude emits large error output.
     cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::inherit());
 
     let mut child = cmd.spawn().context("failed to spawn claude process")?;
 
