@@ -5,34 +5,60 @@ import '@xyflow/react/dist/style.css';
 
 import { useCanvasStore } from '../../store/canvasStore';
 import { nodeTypes } from './nodes';
+import { AskUserOverlay } from './AskUserOverlay';
 import type { CanvasNodePayload } from '../../types/canvas';
+
+interface AgentResultPayload {
+  agent_id: string;
+  ticket_id: string;
+  session_id?: string;
+}
 
 interface TicketCanvasProps {
   ticketId: string;
 }
 
 export function TicketCanvas({ ticketId }: TicketCanvasProps) {
-  const { nodes, edges, setActiveTicket, addNodeFromEvent } = useCanvasStore();
+  const {
+    nodes, edges,
+    setActiveTicket, addNodeFromEvent,
+    awaitingQuestion, awaitingSessionId,
+    setAwaiting, clearAwaiting,
+  } = useCanvasStore();
 
-  // When the ticketId changes, reset the canvas for this ticket
   useEffect(() => {
     setActiveTicket(ticketId);
   }, [ticketId, setActiveTicket]);
 
-  // Listen for agent-event Tauri events and add them as canvas nodes
+  // Listen for canvas node events from the agent stream
   useEffect(() => {
-    // listen() returns Promise<UnlistenFn> — call it on cleanup to stop listening
     const unlisten = listen<CanvasNodePayload>('agent-event', (event) => {
       addNodeFromEvent(event.payload);
     });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
+    return () => { unlisten.then((fn) => fn()); };
   }, [addNodeFromEvent]);
 
+  // Listen for agent run completion — show ask-user overlay if agent ended with a question
+  useEffect(() => {
+    const unlisten = listen<AgentResultPayload>('agent-result', (event) => {
+      const { session_id } = event.payload;
+      if (!session_id) return;
+
+      // Check if the last text node in the canvas ended with a question mark
+      const currentNodes = useCanvasStore.getState().nodes;
+      const lastTextNode = [...currentNodes]
+        .reverse()
+        .find((n) => n.data.nodeType === 'agent_message');
+
+      if (lastTextNode && String(lastTextNode.data.content).trim().endsWith('?')) {
+        setAwaiting(String(lastTextNode.data.content), session_id);
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [setAwaiting]);
+
   return (
-    <div className="w-full h-full bg-neutral-950">
+    <div className="relative w-full h-full bg-neutral-950">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -49,6 +75,19 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
         />
         <Controls />
       </ReactFlow>
+
+      {awaitingQuestion && awaitingSessionId && (
+        <AskUserOverlay
+          question={awaitingQuestion}
+          sessionId={awaitingSessionId}
+          agentId="agent-1"
+          ticketId={ticketId}
+          ticketSlug={ticketId}
+          repoRoot="/home/keenan/github/poietai.ai"
+          systemPrompt=""
+          onDismiss={clearAwaiting}
+        />
+      )}
     </div>
   );
 }
