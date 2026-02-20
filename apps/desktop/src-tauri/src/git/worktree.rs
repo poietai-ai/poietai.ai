@@ -46,7 +46,7 @@ pub fn create(config: &WorktreeConfig) -> Result<Worktree> {
     let path = Worktree::path_for(&config.repo_root, &config.ticket_id);
 
     let output = Command::new("git")
-        .args(["worktree", "add", path.to_str().unwrap(), "-b", &branch])
+        .arg("worktree").arg("add").arg(&path).arg("-b").arg(&branch)
         .current_dir(&config.repo_root)
         .output()
         .context("failed to run git worktree add")?;
@@ -68,7 +68,7 @@ pub fn create(config: &WorktreeConfig) -> Result<Worktree> {
 /// Equivalent to: git worktree remove <path> --force
 pub fn remove(repo_root: &Path, worktree_path: &Path) -> Result<()> {
     let output = Command::new("git")
-        .args(["worktree", "remove", worktree_path.to_str().unwrap(), "--force"])
+        .arg("worktree").arg("remove").arg(worktree_path).arg("--force")
         .current_dir(repo_root)
         .output()
         .context("failed to run git worktree remove")?;
