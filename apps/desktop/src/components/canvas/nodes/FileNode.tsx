@@ -1,5 +1,5 @@
-import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import type { CanvasNodeData } from '../../../types/canvas';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
+import type { CanvasNode } from '../../../types/canvas';
 
 const NODE_STYLES = {
   file_read:  { icon: '📄', border: 'border-blue-700',    bg: 'bg-blue-950',    text: 'text-blue-200'    },
@@ -7,7 +7,7 @@ const NODE_STYLES = {
   file_write: { icon: '🆕', border: 'border-emerald-700', bg: 'bg-emerald-950', text: 'text-emerald-200' },
 } as const;
 
-export function FileNode({ data }: NodeProps<Node<CanvasNodeData>>) {
+export function FileNode({ data }: NodeProps<CanvasNode>) {
   const style = NODE_STYLES[data.nodeType as keyof typeof NODE_STYLES] ?? NODE_STYLES.file_read;
 
   return (

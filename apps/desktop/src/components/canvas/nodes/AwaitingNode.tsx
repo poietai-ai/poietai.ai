@@ -1,7 +1,7 @@
-import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import type { CanvasNodeData } from '../../../types/canvas';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
+import type { CanvasNode } from '../../../types/canvas';
 
-export function AwaitingNode({ data }: NodeProps<Node<CanvasNodeData>>) {
+export function AwaitingNode({ data }: NodeProps<CanvasNode>) {
   return (
     <div className="bg-amber-950 border-2 border-amber-500 rounded-lg p-3 max-w-xs shadow-lg animate-pulse">
       <Handle type="target" position={Position.Top} />

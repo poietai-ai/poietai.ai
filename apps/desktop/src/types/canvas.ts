@@ -1,3 +1,5 @@
+import type { Node } from '@xyflow/react';
+
 // These mirror the Rust AgentEvent enum exactly.
 // When Tauri emits "agent-event", the payload has this shape.
 
@@ -38,3 +40,6 @@ export interface CanvasNodeData extends Record<string, unknown> {
   sessionId?: string;
   approved?: boolean;
 }
+
+// Full node type for use in NodeProps — wraps CanvasNodeData in @xyflow/react's Node shape.
+export type CanvasNode = Node<CanvasNodeData>;

@@ -1,7 +1,7 @@
-import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import type { CanvasNodeData } from '../../../types/canvas';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
+import type { CanvasNode } from '../../../types/canvas';
 
-export function BashNode({ data }: NodeProps<Node<CanvasNodeData>>) {
+export function BashNode({ data }: NodeProps<CanvasNode>) {
   // content is a JSON string of tool_input — extract the command if present
   let command = data.content;
   try {

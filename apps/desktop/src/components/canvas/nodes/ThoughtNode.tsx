@@ -1,7 +1,7 @@
-import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
-import type { CanvasNodeData } from '../../../types/canvas';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
+import type { CanvasNode } from '../../../types/canvas';
 
-export function ThoughtNode({ data }: NodeProps<Node<CanvasNodeData>>) {
+export function ThoughtNode({ data }: NodeProps<CanvasNode>) {
   return (
     <div className="bg-indigo-950 border border-indigo-700 rounded-lg p-3 max-w-xs shadow-lg">
       <Handle type="target" position={Position.Top} className="!bg-indigo-500" />
