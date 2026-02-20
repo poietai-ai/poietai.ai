@@ -22,8 +22,7 @@ export function ProjectSwitcher() {
       title: 'Select project folder',
     });
     if (!selected) return;
-    // open() returns string | string[] | null
-    const repoRoot = Array.isArray(selected) ? selected[0] : selected;
+    const repoRoot = selected;
     const name = repoRoot.split('/').filter(Boolean).pop() ?? 'Project';
     const project: Project = {
       id: crypto.randomUUID(),
