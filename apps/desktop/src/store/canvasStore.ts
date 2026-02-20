@@ -16,6 +16,9 @@ interface CanvasStore {
   clearCanvas: () => void;
 }
 
+// Vertical gap between canvas nodes in pixels.
+const NODE_VERTICAL_SPACING = 130;
+
 function nodeTypeFromEvent(event: AgentEventKind): CanvasNodeType | null {
   switch (event.type) {
     case 'thinking': return 'thought';
@@ -27,8 +30,8 @@ function nodeTypeFromEvent(event: AgentEventKind): CanvasNodeType | null {
         case 'Write': return 'file_write';
         default: return 'bash_command';
       }
-    case 'result': return null;
-    default: return null;
+    case 'tool_result': return null; // internal plumbing, not a canvas node
+    case 'result': return null;      // session-end signal, handled by AskUserOverlay
   }
 }
 
@@ -43,8 +46,8 @@ function contentFromEvent(event: AgentEventKind): string {
 
 function filePathFromEvent(event: AgentEventKind): string | undefined {
   if (event.type !== 'tool_use') return undefined;
-  const input = event.tool_input as Record<string, string>;
-  return input['file_path'] ?? input['path'] ?? undefined;
+  const raw = event.tool_input['file_path'] ?? event.tool_input['path'];
+  return typeof raw === 'string' ? raw : undefined;
 }
 
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
@@ -60,14 +63,15 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   addNodeFromEvent: (payload) => {
     const { nodes, edges, activeTicketId } = get();
-    if (activeTicketId && payload.ticket_id !== activeTicketId) return;
+    // Only add nodes when a ticket canvas is active and the event matches it
+    if (payload.ticket_id !== activeTicketId) return;
 
     const nodeType = nodeTypeFromEvent(payload.event);
     if (!nodeType) return;
 
     const content = contentFromEvent(payload.event);
     const filePath = filePathFromEvent(payload.event);
-    const yPosition = nodes.length * 130;
+    const yPosition = nodes.length * NODE_VERTICAL_SPACING;
 
     const newNode: Node<CanvasNodeData> = {
       id: payload.node_id,
