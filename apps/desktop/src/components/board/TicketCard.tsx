@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useTicketStore, type Ticket } from '../../store/ticketStore';
 import { useCanvasStore } from '../../store/canvasStore';
 import { useProjectStore } from '../../store/projectStore';
+import { useSecretsStore } from '../../store/secretsStore';
 import { AgentPickerModal } from '../agents/AgentPickerModal';
 import { buildPrompt } from '../../lib/promptBuilder';
 import type { Agent } from '../../store/agentStore';
@@ -48,9 +49,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
       ticketAcceptanceCriteria: ticket.acceptanceCriteria,
     });
 
-    // GH token will be wired in Task 10 via secretsStore.
-    // Using empty string here temporarily so the flow compiles end-to-end.
-    const ghToken = '';
+    const ghToken = useSecretsStore.getState().ghToken ?? '';
 
     try {
       await invoke<void>('start_agent', {

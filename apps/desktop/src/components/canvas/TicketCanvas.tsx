@@ -57,6 +57,9 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
     return () => { unlisten.then((fn) => fn()); };
   }, [setAwaiting]);
 
+  const lastNode = nodes.length > 0 ? nodes[nodes.length - 1] : null;
+  const agentId = lastNode ? String(lastNode.data.agentId ?? '') : '';
+
   return (
     <div className="relative w-full h-full bg-neutral-950">
       <ReactFlow
@@ -80,11 +83,8 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
         <AskUserOverlay
           question={awaitingQuestion}
           sessionId={awaitingSessionId}
-          agentId="agent-1"
+          agentId={agentId}
           ticketId={ticketId}
-          ticketSlug={ticketId}
-          repoRoot="/home/keenan/github/poietai.ai"
-          systemPrompt=""
           onDismiss={clearAwaiting}
         />
       )}

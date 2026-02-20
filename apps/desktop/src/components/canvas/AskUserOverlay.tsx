@@ -1,20 +1,17 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useSecretsStore } from '../../store/secretsStore';
 
 interface AskUserOverlayProps {
   question: string;
   sessionId: string;
   agentId: string;
   ticketId: string;
-  ticketSlug: string;
-  repoRoot: string;
-  systemPrompt: string;
   onDismiss: () => void;
 }
 
 export function AskUserOverlay({
-  question, sessionId, agentId, ticketId, ticketSlug,
-  repoRoot, systemPrompt, onDismiss,
+  question, sessionId, agentId, ticketId, onDismiss,
 }: AskUserOverlayProps) {
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
@@ -23,15 +20,17 @@ export function AskUserOverlay({
     if (!reply.trim()) return;
     setSending(true);
     try {
-      await invoke('start_agent', {
+      // Temporary: calls start_agent which will attempt to re-create the worktree.
+      // Task 12 replaces this with invoke('resume_agent', ...).
+      await invoke<void>('start_agent', {
         payload: {
           agent_id: agentId,
           ticket_id: ticketId,
-          ticket_slug: ticketSlug,
+          ticket_slug: ticketId,
           prompt: reply,
-          system_prompt: systemPrompt,
-          repo_root: repoRoot,
-          gh_token: '',
+          system_prompt: '',
+          repo_root: '',
+          gh_token: useSecretsStore.getState().ghToken ?? '',
           resume_session_id: sessionId,
         },
       });
