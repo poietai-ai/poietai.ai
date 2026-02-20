@@ -6,6 +6,7 @@ mod github;
 use std::path::PathBuf;
 use tauri::State;
 use serde::Deserialize;
+use sha2::{Sha256, Digest};
 
 use agent::state::{
     AgentState, AgentStatus, StateStore,
@@ -177,6 +178,20 @@ async fn start_pr_poll(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(
+            tauri_plugin_stronghold::Builder::new(|password| {
+                // Derive a 32-byte vault key from the installation key + a fixed app salt.
+                // sha2 is lighter than argon2 and adequate for a machine-specific key.
+                let mut hasher = Sha256::new();
+                hasher.update(password.as_bytes());
+                hasher.update(b"poietai-vault-2026");
+                hasher.finalize().to_vec()
+            })
+            .build(),
+        )
         .manage(AppState {
             agents: new_store(),
         })
