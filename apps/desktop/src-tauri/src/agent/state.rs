@@ -63,6 +63,15 @@ pub fn all_agents(store: &StateStore) -> Vec<AgentState> {
     map.values().cloned().collect()
 }
 
+/// Persist the Claude Code session ID on an agent after a successful run.
+/// No-op if the agent ID is not found.
+pub fn save_session_id(store: &StateStore, id: &str, session_id: &str) {
+    let mut map = store.lock().unwrap();
+    if let Some(agent) = map.get_mut(id) {
+        agent.session_id = Some(session_id.to_string());
+    }
+}
+
 /// Update just the status of an agent.
 /// Returns true if the agent was found and updated, false if the ID was not in the store.
 pub fn set_status(store: &StateStore, id: &str, status: AgentStatus) -> bool {
@@ -127,6 +136,24 @@ mod tests {
     #[test]
     fn missing_agent_returns_none() {
         let store = new_store();
+        assert!(get_agent(&store, "nonexistent").is_none());
+    }
+
+    #[test]
+    fn save_and_retrieve_session_id() {
+        let store = new_store();
+        upsert_agent(&store, make_agent("agent-5", AgentStatus::Idle));
+        save_session_id(&store, "agent-5", "session-abc");
+
+        let agent = get_agent(&store, "agent-5").unwrap();
+        assert_eq!(agent.session_id, Some("session-abc".to_string()));
+    }
+
+    #[test]
+    fn save_session_id_no_op_for_missing_agent() {
+        let store = new_store();
+        // Should not panic — just silently does nothing
+        save_session_id(&store, "nonexistent", "session-xyz");
         assert!(get_agent(&store, "nonexistent").is_none());
     }
 }

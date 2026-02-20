@@ -50,7 +50,7 @@ pub struct AgentRunConfig {
 /// Emits two event types to React:
 /// - "agent-event": one per parsed JSONL line, with the canvas node payload
 /// - "agent-result": once at the end, with the session ID (for pause/resume)
-pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<()> {
+pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String>> {
     let mut cmd = Command::new("claude");
 
     cmd.arg("--print")
@@ -122,14 +122,14 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<()> {
     let _ = app.emit("agent-result", &AgentResultPayload {
         agent_id: config.agent_id.clone(),
         ticket_id: config.ticket_id.clone(),
-        session_id: last_session_id,
+        session_id: last_session_id.clone(),
     });
 
     if !status.success() {
         anyhow::bail!("claude process exited with status: {}", status);
     }
 
-    Ok(())
+    Ok(last_session_id)
 }
 
 #[cfg(test)]

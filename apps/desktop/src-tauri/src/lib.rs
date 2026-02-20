@@ -137,11 +137,80 @@ async fn start_agent(
     // Spawn the agent run as a background task — this command returns immediately
     tokio::spawn(async move {
         match agent::process::run(run_config, app_clone).await {
-            Ok(()) => {
+            Ok(session_id) => {
+                if let Some(sid) = session_id {
+                    agent::state::save_session_id(&agents_store_clone, &agent_id, &sid);
+                }
                 set_status(&agents_store_clone, &agent_id, AgentStatus::Idle);
             }
             Err(e) => {
                 eprintln!("agent '{}' run failed: {}", agent_id, e);
+                set_status(&agents_store_clone, &agent_id, AgentStatus::Blocked);
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// Resume a paused agent session with a user reply.
+///
+/// Does NOT create a new worktree — uses the agent's existing worktree_path.
+/// The agent must have a worktree_path set (i.e. start_agent was called previously).
+#[tauri::command]
+async fn resume_agent(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    agent_id: String,
+    session_id: String,
+    prompt: String,
+) -> Result<(), String> {
+    let agents_store = state.agents.clone();
+
+    let agent = get_agent(&agents_store, &agent_id)
+        .ok_or_else(|| format!("agent '{}' not found", agent_id))?;
+
+    let worktree_path = agent
+        .worktree_path
+        .as_ref()
+        .ok_or_else(|| format!("agent '{}' has no worktree — cannot resume", agent_id))?;
+
+    let working_dir = PathBuf::from(worktree_path);
+
+    let run_config = agent::process::AgentRunConfig {
+        agent_id: agent_id.clone(),
+        ticket_id: agent.current_ticket_id.clone().unwrap_or_default(),
+        prompt,
+        system_prompt: String::new(),
+        allowed_tools: vec![
+            "Read".to_string(),
+            "Edit".to_string(),
+            "Write".to_string(),
+            "Bash(git:*)".to_string(),
+            "Bash(gh:*)".to_string(),
+            "Bash(cargo:*)".to_string(),
+            "Bash(pnpm:*)".to_string(),
+        ],
+        working_dir,
+        env: vec![],
+        resume_session_id: Some(session_id),
+    };
+
+    set_status(&agents_store, &agent_id, AgentStatus::Working);
+
+    let app_clone = app.clone();
+    let agents_store_clone = agents_store.clone();
+
+    tokio::spawn(async move {
+        match agent::process::run(run_config, app_clone).await {
+            Ok(new_session_id) => {
+                if let Some(sid) = new_session_id {
+                    agent::state::save_session_id(&agents_store_clone, &agent_id, &sid);
+                }
+                set_status(&agents_store_clone, &agent_id, AgentStatus::Idle);
+            }
+            Err(e) => {
+                eprintln!("agent '{}' resume failed: {}", agent_id, e);
                 set_status(&agents_store_clone, &agent_id, AgentStatus::Blocked);
             }
         }
@@ -199,6 +268,7 @@ pub fn run() {
             create_agent,
             get_all_agents,
             start_agent,
+            resume_agent,
             start_pr_poll,
         ])
         .run(tauri::generate_context!())
