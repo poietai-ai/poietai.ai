@@ -12,6 +12,7 @@ export interface Agent {
   current_ticket_id?: string;
   session_id?: string;
   worktree_path?: string;
+  pr_number?: number;
 }
 
 interface AgentStore {
