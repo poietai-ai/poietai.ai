@@ -1,5 +1,6 @@
 import { TicketCanvas } from '../canvas/TicketCanvas';
 import { DmList } from '../messages/DmList';
+import { TicketBoard } from '../board/TicketBoard';
 
 interface MainAreaProps {
   activeView: string;
@@ -26,6 +27,14 @@ export function MainArea({ activeView }: MainAreaProps) {
     return (
       <main className="flex-1 overflow-hidden bg-neutral-900">
         <DmList />
+      </main>
+    );
+  }
+
+  if (activeView === 'dashboard') {
+    return (
+      <main className="flex-1 overflow-hidden bg-neutral-900">
+        <TicketBoard />
       </main>
     );
   }
