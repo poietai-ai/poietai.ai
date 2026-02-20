@@ -1,3 +1,5 @@
+import { TicketCanvas } from '../canvas/TicketCanvas';
+
 interface MainAreaProps {
   activeView: string;
 }
@@ -11,6 +13,15 @@ const viewLabels: Record<string, string> = {
 };
 
 export function MainArea({ activeView }: MainAreaProps) {
+  // The graph view fills the full area — no header
+  if (activeView === 'graph') {
+    return (
+      <main className="flex-1 overflow-hidden">
+        <TicketCanvas ticketId="ticket-1" />
+      </main>
+    );
+  }
+
   return (
     <main className="flex-1 flex flex-col bg-neutral-900 overflow-hidden">
       <header className="px-6 py-4 border-b border-neutral-800">
