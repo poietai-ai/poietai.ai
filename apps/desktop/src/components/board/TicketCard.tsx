@@ -1,7 +1,12 @@
+// apps/desktop/src/components/board/TicketCard.tsx
+import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTicketStore, type Ticket } from '../../store/ticketStore';
 import { useCanvasStore } from '../../store/canvasStore';
+import { useProjectStore } from '../../store/projectStore';
+import { AgentPickerModal } from '../agents/AgentPickerModal';
 import { buildPrompt } from '../../lib/promptBuilder';
+import type { Agent } from '../../store/agentStore';
 
 interface TicketCardProps {
   ticket: Ticket;
@@ -17,35 +22,43 @@ function complexityClass(n: number): string {
 export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
   const { assignTicket, updateTicketStatus } = useTicketStore();
   const { setActiveTicket } = useCanvasStore();
+  const { projects, activeProjectId } = useProjectStore();
+  const [showPicker, setShowPicker] = useState(false);
 
-  const handleAssign = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const agentId = 'agent-1';
+  const activeProject = projects.find((p) => p.id === activeProjectId);
 
-    assignTicket(ticket.id, agentId);
+  const handleAgentSelected = async (agent: Agent) => {
+    setShowPicker(false);
+    if (!activeProject) return;
+
+    assignTicket(ticket.id, agent.id);
 
     const systemPrompt = buildPrompt({
-      role: 'fullstack-engineer',
-      personality: 'pragmatic',
-      projectName: 'poietai.ai',
+      role: agent.role,
+      personality: agent.personality,
+      projectName: activeProject.name,
       projectStack: 'Rust, React 19, Tauri 2, TypeScript',
       projectContext: '',
-      ticketNumber: parseInt(ticket.id.replace('ticket-', ''), 10),
+      ticketNumber: parseInt(ticket.id.replace('ticket-', ''), 10) || 0,
       ticketTitle: ticket.title,
       ticketDescription: ticket.description,
       ticketAcceptanceCriteria: ticket.acceptanceCriteria,
     });
 
+    // GH token will be wired in Task 10 via secretsStore.
+    // Using empty string here temporarily so the flow compiles end-to-end.
+    const ghToken = '';
+
     try {
       await invoke('start_agent', {
         payload: {
-          agent_id: agentId,
+          agent_id: agent.id,
           ticket_id: ticket.id,
           ticket_slug: ticket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
           prompt: `${ticket.title}\n\n${ticket.description}`,
           system_prompt: systemPrompt,
-          repo_root: '/home/keenan/github/poietai.ai',
-          gh_token: '',
+          repo_root: activeProject.repoRoot,
+          gh_token: ghToken,
           resume_session_id: null,
         },
       });
@@ -58,35 +71,49 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
   };
 
   return (
-    <div
-      className="bg-neutral-800 border border-neutral-700 rounded-lg p-3
-                 hover:border-neutral-600 transition-colors cursor-pointer group"
-      onClick={() => onOpenCanvas(ticket.id)}
-    >
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <p className="text-neutral-100 text-sm leading-snug">{ticket.title}</p>
-        <span className={`text-xs px-1.5 py-0.5 rounded font-mono flex-shrink-0 ${complexityClass(ticket.complexity)}`}>
-          {ticket.complexity}
-        </span>
-      </div>
-
-      {ticket.assignedAgentId ? (
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-indigo-700 text-xs text-white
-                          flex items-center justify-center">
-            A
-          </div>
-          <span className="text-neutral-500 text-xs truncate">{ticket.assignedAgentId}</span>
-        </div>
-      ) : (
-        <button
-          onClick={handleAssign}
-          className="text-xs text-indigo-400 hover:text-indigo-300 opacity-0
-                     group-hover:opacity-100 transition-opacity"
-        >
-          + Assign agent
-        </button>
+    <>
+      {showPicker && (
+        <AgentPickerModal
+          onSelect={handleAgentSelected}
+          onClose={() => setShowPicker(false)}
+        />
       )}
-    </div>
+
+      <div
+        className="bg-neutral-800 border border-neutral-700 rounded-lg p-3
+                   hover:border-neutral-600 transition-colors cursor-pointer group"
+        onClick={() => onOpenCanvas(ticket.id)}
+      >
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <p className="text-neutral-100 text-sm leading-snug">{ticket.title}</p>
+          <span
+            className={`text-xs px-1.5 py-0.5 rounded font-mono flex-shrink-0 ${complexityClass(ticket.complexity)}`}
+          >
+            {ticket.complexity}
+          </span>
+        </div>
+
+        {ticket.assignedAgentId ? (
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full bg-indigo-700 text-xs text-white
+                            flex items-center justify-center">
+              A
+            </div>
+            <span className="text-neutral-500 text-xs truncate">{ticket.assignedAgentId}</span>
+          </div>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowPicker(true); }}
+            disabled={!activeProject}
+            title={activeProject ? 'Assign an agent' : 'Select a project first'}
+            className="text-xs text-indigo-400 hover:text-indigo-300 opacity-0
+                       group-hover:opacity-100 transition-opacity
+                       disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            + Assign agent
+          </button>
+        )}
+      </div>
+    </>
   );
 }
