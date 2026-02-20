@@ -94,4 +94,32 @@ mod tests {
         let line = "not json at all";
         assert!(parse_event(line).is_none());
     }
+
+    #[test]
+    fn parses_tool_result_event() {
+        let line = r#"{"type":"tool_result","tool_use_id":"tu_123","content":"file contents here","is_error":false}"#;
+        let event = parse_event(line).expect("should parse");
+        assert!(matches!(event, AgentEvent::ToolResult { .. }));
+        if let AgentEvent::ToolResult { tool_use_id, is_error, .. } = event {
+            assert_eq!(tool_use_id, "tu_123");
+            assert_eq!(is_error, Some(false));
+        }
+    }
+
+    #[test]
+    fn parses_result_event() {
+        let line = r#"{"type":"result","result":"Done. PR opened at #42.","session_id":"sess_abc"}"#;
+        let event = parse_event(line).expect("should parse");
+        assert!(matches!(event, AgentEvent::Result { .. }));
+        if let AgentEvent::Result { session_id, .. } = event {
+            assert_eq!(session_id.as_deref(), Some("sess_abc"));
+        }
+    }
+
+    #[test]
+    fn parses_result_event_with_no_fields() {
+        let line = r#"{"type":"result"}"#;
+        let event = parse_event(line).expect("should parse even with no fields");
+        assert!(matches!(event, AgentEvent::Result { result: None, session_id: None }));
+    }
 }
