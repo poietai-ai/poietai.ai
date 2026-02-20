@@ -1,4 +1,5 @@
 import { TicketCanvas } from '../canvas/TicketCanvas';
+import { DmList } from '../messages/DmList';
 
 interface MainAreaProps {
   activeView: string;
@@ -13,11 +14,18 @@ const viewLabels: Record<string, string> = {
 };
 
 export function MainArea({ activeView }: MainAreaProps) {
-  // The graph view fills the full area — no header
   if (activeView === 'graph') {
     return (
       <main className="flex-1 overflow-hidden">
         <TicketCanvas ticketId="ticket-1" />
+      </main>
+    );
+  }
+
+  if (activeView === 'messages') {
+    return (
+      <main className="flex-1 overflow-hidden bg-neutral-900">
+        <DmList />
       </main>
     );
   }
