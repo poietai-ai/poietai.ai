@@ -68,10 +68,18 @@ pub async fn poll_pr(
     for _ in 0..max_polls {
         ticker.tick().await;
 
-        let reviews = match fetch_reviews(&repo, pr_number) {
-            Ok(r) => r,
-            Err(e) => {
+        // spawn_blocking runs the synchronous gh CLI call on tokio's blocking
+        // thread pool, so the async executor thread isn't stalled during the
+        // subprocess wait.
+        let repo_clone = repo.clone();
+        let reviews = match tokio::task::spawn_blocking(move || fetch_reviews(&repo_clone, pr_number)).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => {
                 eprintln!("poller: error fetching reviews for PR #{}: {}", pr_number, e);
+                continue;
+            }
+            Err(e) => {
+                eprintln!("poller: spawn_blocking panicked for PR #{}: {}", pr_number, e);
                 continue;
             }
         };
