@@ -9,9 +9,10 @@ const navItems = [
 interface SidebarProps {
   activeView: string;
   onNavigate: (view: string) => void;
+  onSettings: () => void;
 }
 
-export function Sidebar({ activeView, onNavigate }: SidebarProps) {
+export function Sidebar({ activeView, onNavigate, onSettings }: SidebarProps) {
   return (
     <aside className="w-16 flex flex-col items-center py-4 gap-2 bg-neutral-950 border-r border-neutral-800">
       <div className="mb-4 w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
@@ -31,6 +32,15 @@ export function Sidebar({ activeView, onNavigate }: SidebarProps) {
           {item.icon}
         </button>
       ))}
+      <div className="flex-1" />
+      <button
+        onClick={onSettings}
+        title="Settings"
+        className="w-10 h-10 rounded-lg flex items-center justify-center text-xl
+                   text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 transition-colors"
+      >
+        ⚙
+      </button>
     </aside>
   );
 }
