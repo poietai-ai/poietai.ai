@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Every event that can come from the Claude Code JSONL stream.
 ///
@@ -7,7 +7,7 @@ use serde::Deserialize;
 ///
 /// In Go terms: this is an interface{} with a type switch, but the compiler
 /// enforces exhaustiveness at compile time.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentEvent {
     /// A thinking block — the agent's internal reasoning.
