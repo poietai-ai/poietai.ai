@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 /// The statuses an agent can be in.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentStatus {
     Idle,
@@ -64,10 +64,14 @@ pub fn all_agents(store: &StateStore) -> Vec<AgentState> {
 }
 
 /// Update just the status of an agent.
-pub fn set_status(store: &StateStore, id: &str, status: AgentStatus) {
+/// Returns true if the agent was found and updated, false if the ID was not in the store.
+pub fn set_status(store: &StateStore, id: &str, status: AgentStatus) -> bool {
     let mut map = store.lock().unwrap();
     if let Some(agent) = map.get_mut(id) {
         agent.status = status;
+        true
+    } else {
+        false
     }
 }
 
