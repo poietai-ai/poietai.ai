@@ -29,14 +29,17 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
 
   const handleAgentSelected = async (agent: Agent) => {
     setShowPicker(false);
-    if (!activeProject) return;
-
-    assignTicket(ticket.id, agent.id);
+    // Re-derive activeProject at call time to avoid stale closure if user switches projects.
+    const project = useProjectStore.getState().projects.find(
+      (p) => p.id === useProjectStore.getState().activeProjectId
+    );
+    if (!project) return;
 
     const systemPrompt = buildPrompt({
       role: agent.role,
       personality: agent.personality,
-      projectName: activeProject.name,
+      projectName: project.name,
+      // TODO: pull from project.stack once the field exists on the Project model
       projectStack: 'Rust, React 19, Tauri 2, TypeScript',
       projectContext: '',
       ticketNumber: parseInt(ticket.id.replace('ticket-', ''), 10) || 0,
@@ -50,18 +53,20 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
     const ghToken = '';
 
     try {
-      await invoke('start_agent', {
+      await invoke<void>('start_agent', {
         payload: {
           agent_id: agent.id,
           ticket_id: ticket.id,
           ticket_slug: ticket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
           prompt: `${ticket.title}\n\n${ticket.description}`,
           system_prompt: systemPrompt,
-          repo_root: activeProject.repoRoot,
+          repo_root: project.repoRoot,
           gh_token: ghToken,
           resume_session_id: null,
         },
       });
+      // Only mutate ticket state after the invoke succeeds — no rollback needed.
+      assignTicket(ticket.id, agent.id);
       updateTicketStatus(ticket.id, 'in_progress');
       setActiveTicket(ticket.id);
       onOpenCanvas(ticket.id);
