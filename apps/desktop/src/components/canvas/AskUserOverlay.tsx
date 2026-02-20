@@ -15,9 +15,11 @@ export function AskUserOverlay({
 }: AskUserOverlayProps) {
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSend = async () => {
     if (!reply.trim()) return;
+    setError(null);
     setSending(true);
     try {
       // Temporary: calls start_agent which will attempt to re-create the worktree.
@@ -37,6 +39,7 @@ export function AskUserOverlay({
       onDismiss();
     } catch (err) {
       console.error('failed to resume agent:', err);
+      setError('Failed to send reply. Please try again.');
     } finally {
       setSending(false);
     }
@@ -47,6 +50,7 @@ export function AskUserOverlay({
                     bg-neutral-900 border border-amber-600 rounded-xl p-4 shadow-2xl z-10">
       <p className="text-amber-200 text-sm mb-3 font-medium">Agent is waiting for you</p>
       <p className="text-neutral-300 text-sm mb-4 leading-relaxed">{question}</p>
+      {error && <p className="text-red-400 text-xs mb-2">{error}</p>}
       <div className="flex gap-2">
         <input
           type="text"
