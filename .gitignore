@@ -5,10 +5,14 @@ node_modules/
 # Build outputs
 dist/
 build/
-target/
 
 # Tauri
 apps/desktop/src-tauri/target/
+
+# Tauri signing keys
+*.pem
+*.key
+apps/desktop/src-tauri/gen/
 
 # Env
 .env

@@ -3,10 +3,11 @@
   "private": true,
   "version": "0.0.1",
   "description": "A software team at your fingertips.",
+  "packageManager": "pnpm@10.28.1",
   "scripts": {
     "desktop": "pnpm --filter @poietai/desktop tauri dev",
     "desktop:build": "pnpm --filter @poietai/desktop tauri build",
-    "build": "pnpm -r build",
+    "build": "pnpm -r --filter './packages/**' build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint"
   },
