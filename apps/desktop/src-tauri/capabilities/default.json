@@ -8,8 +8,7 @@
     "opener:default",
     "dialog:default",
     "store:default",
-    "stronghold:allow-initialize",
-    "stronghold:allow-execute-procedure",
+    "stronghold:default",
     "fs:default"
   ]
 }
