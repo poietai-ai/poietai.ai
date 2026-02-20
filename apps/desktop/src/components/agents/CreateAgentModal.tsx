@@ -26,6 +26,7 @@ export function CreateAgentModal({ onClose }: Props) {
   const [role, setRole] = useState<string>(ROLES[0]);
   const [personality, setPersonality] = useState<string>(PERSONALITIES[0]);
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { refresh } = useAgentStore();
 
   const handleCreate = async () => {
@@ -38,6 +39,7 @@ export function CreateAgentModal({ onClose }: Props) {
       onClose();
     } catch (e) {
       console.error('failed to create agent:', e);
+      setError('Failed to create agent. Please try again.');
     } finally {
       setCreating(false);
     }
@@ -48,20 +50,22 @@ export function CreateAgentModal({ onClose }: Props) {
       <div className="bg-neutral-900 border border-neutral-700 rounded-xl p-5 w-80 shadow-2xl">
         <h2 className="text-neutral-100 font-semibold mb-4">New agent</h2>
 
-        <label className="block text-neutral-400 text-xs mb-1">Name</label>
+        <label htmlFor="agent-name" className="block text-neutral-400 text-xs mb-1">Name</label>
         <input
+          id="agent-name"
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+          onKeyDown={(e) => e.key === 'Enter' && !creating && handleCreate()}
           placeholder="e.g. Atlas"
           className="w-full bg-neutral-800 border border-neutral-600 rounded-lg px-3 py-2
                      text-sm text-white placeholder-neutral-500 focus:outline-none
                      focus:border-indigo-500 mb-3"
         />
 
-        <label className="block text-neutral-400 text-xs mb-1">Role</label>
+        <label htmlFor="agent-role" className="block text-neutral-400 text-xs mb-1">Role</label>
         <select
+          id="agent-role"
           value={role}
           onChange={(e) => setRole(e.target.value)}
           className="w-full bg-neutral-800 border border-neutral-600 rounded-lg px-3 py-2
@@ -70,8 +74,9 @@ export function CreateAgentModal({ onClose }: Props) {
           {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
 
-        <label className="block text-neutral-400 text-xs mb-1">Personality</label>
+        <label htmlFor="agent-personality" className="block text-neutral-400 text-xs mb-1">Personality</label>
         <select
+          id="agent-personality"
           value={personality}
           onChange={(e) => setPersonality(e.target.value)}
           className="w-full bg-neutral-800 border border-neutral-600 rounded-lg px-3 py-2
@@ -80,6 +85,7 @@ export function CreateAgentModal({ onClose }: Props) {
           {PERSONALITIES.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
 
+        {error && <p className="text-red-400 text-xs mb-2">{error}</p>}
         <div className="flex gap-2 justify-end">
           <button
             onClick={onClose}
