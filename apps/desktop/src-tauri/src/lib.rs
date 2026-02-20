@@ -181,6 +181,7 @@ async fn resume_agent(
         agent_id: agent_id.clone(),
         ticket_id: agent.current_ticket_id.clone().unwrap_or_default(),
         prompt,
+        // No system prompt: --resume replays the original session context from Claude's side.
         system_prompt: String::new(),
         allowed_tools: vec![
             "Read".to_string(),
@@ -192,6 +193,7 @@ async fn resume_agent(
             "Bash(pnpm:*)".to_string(),
         ],
         working_dir,
+        // No new git identity: the existing worktree retains the identity set at start_agent time.
         env: vec![],
         resume_session_id: Some(session_id),
     };
