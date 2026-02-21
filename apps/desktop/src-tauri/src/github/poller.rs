@@ -1,7 +1,7 @@
-use std::process::Command;
-use std::time::Duration;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::process::Command;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::time::interval;
 
@@ -32,9 +32,15 @@ struct GhPrViewOutput {
 /// Fetch current reviews for a PR using the `gh` CLI.
 pub fn fetch_reviews(repo: &str, pr_number: u32) -> Result<Vec<PrReview>> {
     let output = Command::new("gh")
-        .args(["pr", "view", &pr_number.to_string(),
-               "--repo", repo,
-               "--json", "reviews"])
+        .args([
+            "pr",
+            "view",
+            &pr_number.to_string(),
+            "--repo",
+            repo,
+            "--json",
+            "reviews",
+        ])
         .output()
         .context("failed to run gh pr view")?;
 
@@ -43,8 +49,8 @@ pub fn fetch_reviews(repo: &str, pr_number: u32) -> Result<Vec<PrReview>> {
         anyhow::bail!("gh pr view failed: {}", stderr);
     }
 
-    let parsed: GhPrViewOutput = serde_json::from_slice(&output.stdout)
-        .context("failed to parse gh pr view output")?;
+    let parsed: GhPrViewOutput =
+        serde_json::from_slice(&output.stdout).context("failed to parse gh pr view output")?;
 
     Ok(parsed.reviews)
 }
@@ -72,14 +78,24 @@ pub async fn poll_pr(
         // thread pool, so the async executor thread isn't stalled during the
         // subprocess wait.
         let repo_clone = repo.clone();
-        let reviews = match tokio::task::spawn_blocking(move || fetch_reviews(&repo_clone, pr_number)).await {
+        let reviews = match tokio::task::spawn_blocking(move || {
+            fetch_reviews(&repo_clone, pr_number)
+        })
+        .await
+        {
             Ok(Ok(r)) => r,
             Ok(Err(e)) => {
-                eprintln!("poller: error fetching reviews for PR #{}: {}", pr_number, e);
+                eprintln!(
+                    "poller: error fetching reviews for PR #{}: {}",
+                    pr_number, e
+                );
                 continue;
             }
             Err(e) => {
-                eprintln!("poller: spawn_blocking panicked for PR #{}: {}", pr_number, e);
+                eprintln!(
+                    "poller: spawn_blocking panicked for PR #{}: {}",
+                    pr_number, e
+                );
                 continue;
             }
         };
@@ -104,7 +120,10 @@ pub async fn poll_pr(
         }
     }
 
-    eprintln!("poller: max polls ({}) reached for PR #{}", max_polls, pr_number);
+    eprintln!(
+        "poller: max polls ({}) reached for PR #{}",
+        max_polls, pr_number
+    );
 }
 
 #[cfg(test)]

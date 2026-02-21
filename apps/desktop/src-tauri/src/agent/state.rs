@@ -1,6 +1,6 @@
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use serde::Serialize;
 
 /// The statuses an agent can be in.
 #[derive(Debug, Clone, Serialize, PartialEq)]

@@ -12,15 +12,11 @@ use serde::{Deserialize, Serialize};
 pub enum AgentEvent {
     /// A thinking block — the agent's internal reasoning.
     /// Maps to canvas node type: ThoughtNode (indigo)
-    Thinking {
-        thinking: String,
-    },
+    Thinking { thinking: String },
 
     /// A text message — the agent narrating what it's doing.
     /// Routed to ticket chat AND becomes a canvas node (neutral gray).
-    Text {
-        text: String,
-    },
+    Text { text: String },
 
     /// Tool use start — which tool and with what input.
     /// We inspect `tool_name` to decide canvas node type.
@@ -100,7 +96,12 @@ mod tests {
         let line = r#"{"type":"tool_result","tool_use_id":"tu_123","content":"file contents here","is_error":false}"#;
         let event = parse_event(line).expect("should parse");
         assert!(matches!(event, AgentEvent::ToolResult { .. }));
-        if let AgentEvent::ToolResult { tool_use_id, is_error, .. } = event {
+        if let AgentEvent::ToolResult {
+            tool_use_id,
+            is_error,
+            ..
+        } = event
+        {
             assert_eq!(tool_use_id, "tu_123");
             assert_eq!(is_error, Some(false));
         }
@@ -108,7 +109,8 @@ mod tests {
 
     #[test]
     fn parses_result_event() {
-        let line = r#"{"type":"result","result":"Done. PR opened at #42.","session_id":"sess_abc"}"#;
+        let line =
+            r#"{"type":"result","result":"Done. PR opened at #42.","session_id":"sess_abc"}"#;
         let event = parse_event(line).expect("should parse");
         assert!(matches!(event, AgentEvent::Result { .. }));
         if let AgentEvent::Result { session_id, .. } = event {
@@ -120,6 +122,12 @@ mod tests {
     fn parses_result_event_with_no_fields() {
         let line = r#"{"type":"result"}"#;
         let event = parse_event(line).expect("should parse even with no fields");
-        assert!(matches!(event, AgentEvent::Result { result: None, session_id: None }));
+        assert!(matches!(
+            event,
+            AgentEvent::Result {
+                result: None,
+                session_id: None
+            }
+        ));
     }
 }

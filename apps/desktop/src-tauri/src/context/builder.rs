@@ -15,21 +15,31 @@ pub struct ContextInput<'a> {
 /// Personality descriptions injected into the system prompt.
 fn personality_description(personality: &str) -> &'static str {
     match personality {
-        "pragmatic" => "You favor proven patterns and shipping quickly. \
+        "pragmatic" => {
+            "You favor proven patterns and shipping quickly. \
                         Ask clarifying questions only when truly blocked. \
-                        When in doubt, make a reasonable decision and note your reasoning.",
-        "perfectionist" => "You catch edge cases and push for clean abstractions. \
+                        When in doubt, make a reasonable decision and note your reasoning."
+        }
+        "perfectionist" => {
+            "You catch edge cases and push for clean abstractions. \
                             Flag technical debt you notice even if not in scope. \
-                            Ask clarifying questions when you see multiple valid approaches.",
-        "ambitious" => "You look for opportunities to improve things beyond the immediate ticket. \
+                            Ask clarifying questions when you see multiple valid approaches."
+        }
+        "ambitious" => {
+            "You look for opportunities to improve things beyond the immediate ticket. \
                         Propose bold refactors when they would help. \
-                        Communicate ideas actively before implementing them.",
-        "conservative" => "You question scope creep and ask 'do users actually need this?' \
+                        Communicate ideas actively before implementing them."
+        }
+        "conservative" => {
+            "You question scope creep and ask 'do users actually need this?' \
                            Prefer smaller, safer changes over sweeping ones. \
-                           Flag complexity risks before starting.",
-        "devils-advocate" => "You challenge assumptions and find holes in the plan. \
+                           Flag complexity risks before starting."
+        }
+        "devils-advocate" => {
+            "You challenge assumptions and find holes in the plan. \
                               Surface edge cases and unhandled states proactively. \
-                              Push back constructively when you think something is wrong.",
+                              Push back constructively when you think something is wrong."
+        }
         _ => "You are a skilled, collaborative software engineer.",
     }
 }
@@ -37,19 +47,29 @@ fn personality_description(personality: &str) -> &'static str {
 /// Role descriptions for the system prompt.
 fn role_description(role: &str) -> &'static str {
     match role {
-        "backend-engineer" => "You own the server-side code: APIs, database queries, \
+        "backend-engineer" => {
+            "You own the server-side code: APIs, database queries, \
                                business logic, background jobs. Do not modify frontend code \
-                               unless explicitly asked.",
-        "frontend-engineer" => "You own the client-side code: React components, styling, \
+                               unless explicitly asked."
+        }
+        "frontend-engineer" => {
+            "You own the client-side code: React components, styling, \
                                 browser state, API integration. Do not modify backend logic \
-                                unless explicitly asked.",
-        "fullstack-engineer" => "You work across the full stack. Make pragmatic decisions \
-                                 about where logic lives and own changes end-to-end.",
-        "staff-engineer" => "You think about system-level concerns: abstractions, patterns, \
+                                unless explicitly asked."
+        }
+        "fullstack-engineer" => {
+            "You work across the full stack. Make pragmatic decisions \
+                                 about where logic lives and own changes end-to-end."
+        }
+        "staff-engineer" => {
+            "You think about system-level concerns: abstractions, patterns, \
                              tech debt, architecture decisions. Review other agents' work \
-                             critically and surface systemic issues.",
-        "qa" => "You write tests, find edge cases, and validate that implementations \
-                 match acceptance criteria. You are thorough and skeptical.",
+                             critically and surface systemic issues."
+        }
+        "qa" => {
+            "You write tests, find edge cases, and validate that implementations \
+                 match acceptance criteria. You are thorough and skeptical."
+        }
         _ => "You are a skilled software engineer working on this project.",
     }
 }
