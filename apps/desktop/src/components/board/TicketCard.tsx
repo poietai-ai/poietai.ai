@@ -66,7 +66,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
         },
       });
       // Only mutate ticket state after the invoke succeeds — no rollback needed.
-      assignTicket(ticket.id, { agentId: agent.id, repoId: '' }); // repoId wired in Task 9
+      assignTicket(ticket.id, { agentId: agent.id, repoId: project.repos[0]?.id ?? '' }); // TODO(Task 9): use selected repo from AgentPickerModal
       updateTicketStatus(ticket.id, 'in_progress');
       setActiveTicket(ticket.id);
       onOpenCanvas(ticket.id);
