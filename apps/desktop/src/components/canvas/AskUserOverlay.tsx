@@ -36,9 +36,9 @@ export function AskUserOverlay({
 
   return (
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-lg
-                    bg-neutral-900 border border-amber-600 rounded-xl p-4 shadow-2xl z-10">
+                    bg-zinc-900 border border-amber-600 rounded-xl p-4 shadow-2xl z-10">
       <p className="text-amber-200 text-sm mb-3 font-medium">Agent is waiting for you</p>
-      <p className="text-neutral-300 text-sm mb-4 leading-relaxed">{question}</p>
+      <p className="text-zinc-300 text-sm mb-4 leading-relaxed">{question}</p>
       {error && <p className="text-red-400 text-xs mb-2">{error}</p>}
       <div className="flex gap-2">
         <input
@@ -47,8 +47,8 @@ export function AskUserOverlay({
           onChange={(e) => setReply(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
           placeholder="Your reply..."
-          className="flex-1 bg-neutral-800 border border-neutral-600 rounded-lg px-3 py-2
-                     text-sm text-white placeholder-neutral-500 focus:outline-none
+          className="flex-1 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2
+                     text-sm text-white placeholder-zinc-500 focus:outline-none
                      focus:border-amber-500"
           autoFocus
         />
