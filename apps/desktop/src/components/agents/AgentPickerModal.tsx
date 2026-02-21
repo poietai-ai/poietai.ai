@@ -9,6 +9,8 @@ function statusDot(status: Agent['status']): string {
     case 'idle': return 'bg-green-500';
     case 'working': return 'bg-orange-400';
     case 'waiting_for_user': return 'bg-amber-400';
+    case 'reviewing': return 'bg-blue-400';
+    case 'blocked': return 'bg-red-500';
     default: return 'bg-neutral-500';
   }
 }
@@ -33,6 +35,24 @@ export function AgentPickerModal({ onSelect, onClose }: Props) {
   const activeProject = projects.find((p) => p.id === activeProjectId);
   const repos = activeProject?.repos ?? [];
   const isMultiRepo = repos.length > 1;
+
+  // No repos — project needs at least one repo to assign an agent
+  if (activeProject && repos.length === 0) {
+    return (
+      <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+        <div className="bg-neutral-900 border border-neutral-700 rounded-xl p-4 w-72 shadow-2xl">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-neutral-100 font-semibold text-sm">Assign agent</h2>
+            <button type="button" onClick={onClose}
+              className="text-neutral-500 hover:text-neutral-300 text-xl leading-none">×</button>
+          </div>
+          <p className="text-neutral-500 text-xs text-center py-4">
+            This project has no repositories. Add one in Settings.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (showCreate) {
     return <CreateAgentModal onClose={() => setShowCreate(false)} />;
