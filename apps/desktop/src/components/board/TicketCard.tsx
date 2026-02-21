@@ -28,7 +28,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
 
   const activeProject = projects.find((p) => p.id === activeProjectId);
 
-  const handleAgentSelected = async (agent: Agent) => {
+  const handleAgentSelected = async (agent: Agent, repoId: string) => {
     setShowPicker(false);
     // Re-derive activeProject at call time to avoid stale closure if user switches projects.
     const project = useProjectStore.getState().projects.find(
@@ -36,11 +36,13 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
     );
     if (!project) return;
 
+    const repo = project.repos.find((r) => r.id === repoId) ?? project.repos[0];
+    if (!repo) return;
+
     const systemPrompt = buildPrompt({
       role: agent.role,
       personality: agent.personality,
       projectName: project.name,
-      // TODO: pull from project.stack once the field exists on the Project model
       projectStack: 'Rust, React 19, Tauri 2, TypeScript',
       projectContext: '',
       ticketNumber: parseInt(ticket.id.replace('ticket-', ''), 10) || 0,
@@ -59,14 +61,13 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
           ticket_slug: ticket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
           prompt: `${ticket.title}\n\n${ticket.description}`,
           system_prompt: systemPrompt,
-          // TODO(Task 9): use selected repo from AgentPickerModal instead of first repo
-          repo_root: project.repos[0]?.repoRoot ?? '',
+          repo_root: repo.repoRoot,
           gh_token: ghToken,
           resume_session_id: null,
         },
       });
       // Only mutate ticket state after the invoke succeeds — no rollback needed.
-      assignTicket(ticket.id, { agentId: agent.id, repoId: project.repos[0]?.id ?? '' }); // TODO(Task 9): use selected repo from AgentPickerModal
+      assignTicket(ticket.id, { agentId: agent.id, repoId });
       updateTicketStatus(ticket.id, 'in_progress');
       setActiveTicket(ticket.id);
       onOpenCanvas(ticket.id);
