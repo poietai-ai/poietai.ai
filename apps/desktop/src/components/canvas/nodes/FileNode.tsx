@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { FileText, FilePen, FilePlus2, ChevronDown, ChevronUp } from 'lucide-react';
 import type { CanvasNode } from '../../../types/canvas';
 
 const NODE_STYLES = {
-  file_read:  { icon: '📄', border: 'border-blue-700',    bg: 'bg-blue-950',    text: 'text-blue-200',    verb: 'Read'   },
-  file_edit:  { icon: '✏️',  border: 'border-green-700',   bg: 'bg-green-950',   text: 'text-green-200',   verb: 'Edited' },
-  file_write: { icon: '🆕', border: 'border-emerald-700', bg: 'bg-emerald-950', text: 'text-emerald-200', verb: 'Wrote'  },
+  file_read:  { Icon: FileText,  bar: 'border-l-blue-500',    iconCls: 'text-blue-600',    verb: 'Read'   },
+  file_edit:  { Icon: FilePen,   bar: 'border-l-green-500',   iconCls: 'text-green-600',   verb: 'Edited' },
+  file_write: { Icon: FilePlus2, bar: 'border-l-emerald-500', iconCls: 'text-emerald-600', verb: 'Wrote'  },
 } as const;
 
 /** Show the last 2 path segments: `/home/.../src/cart.ts` → `src/cart.ts`. */
@@ -19,9 +20,11 @@ export function FileNode({ data }: NodeProps<CanvasNode>) {
   const style = NODE_STYLES[data.nodeType as keyof typeof NODE_STYLES] ?? NODE_STYLES.file_read;
   const items = (data.items as string[] | undefined) ?? (data.filePath ? [data.filePath] : []);
   const count = items.length;
+  const { Icon } = style;
 
   return (
-    <div className={`${style.bg} border ${style.border} rounded-lg p-3 min-w-48 max-w-xs shadow-lg`}>
+    <div className={`bg-white border border-zinc-200 border-l-4 ${style.bar}
+                     rounded-lg p-3 min-w-48 max-w-xs shadow-sm`}>
       <Handle type="target" position={Position.Top} />
 
       <button
@@ -29,22 +32,24 @@ export function FileNode({ data }: NodeProps<CanvasNode>) {
         onClick={() => count > 1 && setExpanded(!expanded)}
         className="flex items-center gap-2 w-full text-left"
       >
-        <span className="text-sm flex-shrink-0">{style.icon}</span>
-        <span className={`${style.text} text-xs font-mono flex-1 truncate`}>
+        <Icon size={14} strokeWidth={1.5} className={`${style.iconCls} flex-shrink-0`} />
+        <span className="text-zinc-700 text-xs font-mono flex-1 truncate">
           {count > 1
             ? `${style.verb} ${count} files`
             : shortPath(items[0] ?? 'unknown')
           }
         </span>
         {count > 1 && (
-          <span className="text-neutral-500 text-xs flex-shrink-0">{expanded ? '▲' : '▼'}</span>
+          <span className="text-zinc-400 flex-shrink-0">
+            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </span>
         )}
       </button>
 
       {expanded && (
-        <ul className="mt-2 space-y-1 max-h-36 overflow-y-auto border-t border-white/10 pt-2">
+        <ul className="mt-2 space-y-1 max-h-36 overflow-y-auto border-t border-zinc-100 pt-2">
           {items.map((item, i) => (
-            <li key={i} className={`${style.text} text-xs font-mono opacity-75 truncate`}>
+            <li key={i} className="text-zinc-500 text-xs font-mono truncate">
               {shortPath(item)}
             </li>
           ))}
