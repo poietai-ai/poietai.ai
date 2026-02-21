@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use anyhow::{Context, Result};
 
 /// Configuration for a new worktree.
 pub struct WorktreeConfig {
@@ -40,13 +40,25 @@ impl Worktree {
 
 /// Create a new git worktree for a ticket.
 ///
-/// Equivalent to: git worktree add .worktrees/<ticket-id> -b feat/<slug>
+/// Uses `-B` so the branch is created or reset if it already exists
+/// (e.g. from a previous failed attempt). Prunes any stale worktree
+/// at the target path before adding.
 pub fn create(config: &WorktreeConfig) -> Result<Worktree> {
     let branch = Worktree::branch_for(&config.ticket_slug);
     let path = Worktree::path_for(&config.repo_root, &config.ticket_id);
 
+    // Prune stale worktree entries so git doesn't reject the path as already registered.
+    let _ = Command::new("git")
+        .args(["worktree", "prune"])
+        .current_dir(&config.repo_root)
+        .output();
+
     let output = Command::new("git")
-        .arg("worktree").arg("add").arg(&path).arg("-b").arg(&branch)
+        .arg("worktree")
+        .arg("add")
+        .arg(&path)
+        .arg("-B")       // reset branch if it already exists
+        .arg(&branch)
         .current_dir(&config.repo_root)
         .output()
         .context("failed to run git worktree add")?;
@@ -68,7 +80,10 @@ pub fn create(config: &WorktreeConfig) -> Result<Worktree> {
 /// Equivalent to: git worktree remove <path> --force
 pub fn remove(repo_root: &Path, worktree_path: &Path) -> Result<()> {
     let output = Command::new("git")
-        .arg("worktree").arg("remove").arg(worktree_path).arg("--force")
+        .arg("worktree")
+        .arg("remove")
+        .arg(worktree_path)
+        .arg("--force")
         .current_dir(repo_root)
         .output()
         .context("failed to run git worktree remove")?;
@@ -88,7 +103,10 @@ pub fn agent_env(config: &WorktreeConfig, gh_token: &str) -> Vec<(String, String
         ("GIT_AUTHOR_NAME".to_string(), config.agent_name.clone()),
         ("GIT_AUTHOR_EMAIL".to_string(), config.agent_email.clone()),
         ("GIT_COMMITTER_NAME".to_string(), config.agent_name.clone()),
-        ("GIT_COMMITTER_EMAIL".to_string(), config.agent_email.clone()),
+        (
+            "GIT_COMMITTER_EMAIL".to_string(),
+            config.agent_email.clone(),
+        ),
         ("GH_TOKEN".to_string(), gh_token.to_string()),
     ]
 }
@@ -107,7 +125,10 @@ mod tests {
     fn worktree_path_format() {
         let root = PathBuf::from("/home/user/myrepo");
         let path = Worktree::path_for(&root, "ticket-42");
-        assert_eq!(path, PathBuf::from("/home/user/myrepo/.worktrees/ticket-42"));
+        assert_eq!(
+            path,
+            PathBuf::from("/home/user/myrepo/.worktrees/ticket-42")
+        );
     }
 
     #[test]
@@ -121,15 +142,11 @@ mod tests {
         };
         let env = agent_env(&config, "gh_token_abc");
 
-        let git_author: Vec<_> = env.iter()
-            .filter(|(k, _)| k == "GIT_AUTHOR_NAME")
-            .collect();
+        let git_author: Vec<_> = env.iter().filter(|(k, _)| k == "GIT_AUTHOR_NAME").collect();
         assert_eq!(git_author.len(), 1);
         assert_eq!(git_author[0].1, "Staff Engineer");
 
-        let gh_tok: Vec<_> = env.iter()
-            .filter(|(k, _)| k == "GH_TOKEN")
-            .collect();
+        let gh_tok: Vec<_> = env.iter().filter(|(k, _)| k == "GH_TOKEN").collect();
         assert_eq!(gh_tok[0].1, "gh_token_abc");
     }
 }
