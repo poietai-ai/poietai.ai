@@ -51,6 +51,13 @@ fn get_all_agents(state: State<'_, AppState>) -> Vec<AgentState> {
     all_agents(&state.agents)
 }
 
+/// Scan a folder and return git repo information.
+/// Returns SingleRepo, MultiRepo (one level deep), or NoRepo.
+#[tauri::command]
+fn scan_folder(path: String) -> git::scan::FolderScanResult {
+    git::scan::scan_folder(std::path::Path::new(&path))
+}
+
 // ── Agent execution commands ──────────────────────────────────────────────────
 
 /// Payload from React to start an agent on a ticket.
@@ -268,6 +275,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             create_agent,
+            scan_folder,
             get_all_agents,
             start_agent,
             resume_agent,
