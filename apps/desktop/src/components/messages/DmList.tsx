@@ -37,9 +37,9 @@ export function DmList() {
   return (
     <div className="flex h-full">
       {/* Thread list */}
-      <div className="w-56 border-r border-neutral-800 flex flex-col flex-shrink-0">
-        <div className="px-4 py-3 border-b border-neutral-800">
-          <h2 className="text-neutral-400 text-xs font-semibold uppercase tracking-wider">
+      <div className="w-56 border-r border-zinc-800 flex flex-col flex-shrink-0">
+        <div className="px-4 py-3 border-b border-zinc-800">
+          <h2 className="text-zinc-400 text-xs font-semibold uppercase tracking-wider">
             Direct Messages
           </h2>
         </div>
@@ -49,23 +49,23 @@ export function DmList() {
               key={agentId}
               onClick={() => setActiveThread(agentId)}
               className={`w-full flex items-center gap-3 px-4 py-2 text-sm
-                         hover:bg-neutral-800 transition-colors text-left
-                         ${activeThread === agentId ? 'bg-neutral-800 text-white' : 'text-neutral-400'}`}
+                         hover:bg-zinc-800 transition-colors text-left
+                         ${activeThread === agentId ? 'bg-zinc-800 text-white' : 'text-zinc-400'}`}
             >
-              <div className="w-6 h-6 rounded-full bg-indigo-700 flex items-center
+              <div className="w-6 h-6 rounded-full bg-violet-700 flex items-center
                               justify-center text-xs text-white flex-shrink-0">
                 {agentId[0]?.toUpperCase()}
               </div>
               <span className="flex-1 truncate">{agentId}</span>
               {(unreadCounts[agentId] ?? 0) > 0 && (
-                <span className="bg-indigo-600 text-white text-xs rounded-full px-1.5 py-0.5">
+                <span className="bg-violet-600 text-white text-xs rounded-full px-1.5 py-0.5">
                   {unreadCounts[agentId]}
                 </span>
               )}
             </button>
           ))}
           {agentIds.length === 0 && (
-            <p className="px-4 py-3 text-neutral-600 text-xs">
+            <p className="px-4 py-3 text-zinc-600 text-xs">
               No messages yet. Assign a ticket to an agent to start.
             </p>
           )}
@@ -82,7 +82,7 @@ export function DmList() {
                 className={`flex gap-3 ${msg.from === 'user' ? 'justify-end' : ''}`}
               >
                 {msg.from === 'agent' && (
-                  <div className="w-7 h-7 rounded-full bg-indigo-700 flex-shrink-0
+                  <div className="w-7 h-7 rounded-full bg-violet-700 flex-shrink-0
                                   flex items-center justify-center text-xs text-white mt-0.5">
                     {msg.agentId[0]?.toUpperCase()}
                   </div>
@@ -90,8 +90,8 @@ export function DmList() {
                 <div
                   className={`rounded-xl px-3 py-2 max-w-sm text-sm leading-relaxed
                     ${msg.from === 'agent'
-                      ? 'bg-neutral-800 text-neutral-100'
-                      : 'bg-indigo-700 text-white'
+                      ? 'bg-zinc-800 text-zinc-100'
+                      : 'bg-violet-700 text-white'
                     }`}
                 >
                   {msg.content}
@@ -102,7 +102,7 @@ export function DmList() {
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center">
-            <p className="text-neutral-600 text-sm">Select a conversation</p>
+            <p className="text-zinc-600 text-sm">Select a conversation</p>
           </div>
         )}
       </div>
