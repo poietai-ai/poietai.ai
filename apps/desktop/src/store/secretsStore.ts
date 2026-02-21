@@ -83,7 +83,7 @@ export const useSecretsStore = create<SecretsStore>((set, get) => ({
 
     // Try Stronghold first
     try {
-      const { client } = await openVault();
+      const { stronghold, client } = await openVault();
       const store = client.getStore();
 
       // Try new provider-keyed key first, then migrate from old gh_token key
@@ -97,7 +97,6 @@ export const useSecretsStore = create<SecretsStore>((set, get) => ({
           ));
           try { await store.remove('gh_token'); } catch { /* ignore */ }
           await store.insert(tokenKey('github'), encoded);
-          const { stronghold } = await openVault();
           await stronghold.save();
         }
       }
