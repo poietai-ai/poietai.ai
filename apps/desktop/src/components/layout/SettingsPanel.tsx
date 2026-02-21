@@ -89,11 +89,19 @@ export function SettingsPanel({ onClose }: Props) {
         <div className="mb-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-neutral-300 text-sm font-medium">GitHub</h3>
-            <span className={`text-xs px-2 py-0.5 rounded-full ${
-              ghToken ? 'bg-green-950 text-green-400' : 'bg-neutral-800 text-neutral-500'
-            }`}>
-              {ghToken ? '✓ Connected' : 'Not connected'}
-            </span>
+            {ghToken ? (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-green-950 text-green-400">
+                ✓ Connected
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => document.getElementById('gh-token')?.focus()}
+                className="text-xs px-2 py-0.5 rounded-full bg-amber-950 text-amber-400 hover:text-amber-300 transition-colors"
+              >
+                ✗ Not connected — Add token →
+              </button>
+            )}
           </div>
 
           <button
