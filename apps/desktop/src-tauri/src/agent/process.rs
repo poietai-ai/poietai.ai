@@ -43,6 +43,15 @@ pub struct AgentRunConfig {
     pub resume_session_id: Option<String>,
 }
 
+/// Wrap a string in POSIX single quotes for safe embedding in a shell -c string.
+/// Single quotes prevent ALL shell interpretation (globs, parameter expansion, etc.).
+/// The only character that can't appear inside single quotes is `'` itself,
+/// which we handle by ending the quote, escaping the apostrophe, and reopening.
+#[cfg(target_os = "windows")]
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
 /// On Windows, convert a UNC WSL path like
 /// `\\wsl.localhost\Ubuntu\home\user\repo` to a Linux path `/home/user/repo`.
 /// Falls back to the original string if it doesn't match the expected format.
@@ -72,54 +81,73 @@ fn wsl_to_linux_path(path: &PathBuf) -> String {
 /// - "agent-event": one per parsed JSONL line, with the canvas node payload
 /// - "agent-result": once at the end, with the session ID (for pause/resume)
 pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String>> {
-    // On Windows, claude lives inside WSL2 — invoke it via wsl.exe.
-    // --cd sets the working directory inside WSL using the Linux path.
-    // On Linux/macOS, run claude directly.
+    // On Windows, claude lives inside WSL2.
+    // We use `wsl --exec /bin/bash -l -c '<cmd_string>'` where the entire
+    // claude invocation is baked into the -c string with POSIX single-quoting.
+    //
+    // Why not "$@" approach: wsl.exe treats `--` as its own option
+    // ("pass remaining to default shell"), consuming it before bash sees it,
+    // which caused --print to land in $0 (not $@) and be silently dropped.
+    //
+    // Why single-quote each arg: prevents bash/zsh from glob-expanding
+    // Bash(git:*) or interpreting special chars in the prompt/system-prompt.
+    //
+    // Why -l: loads the login profile (nvm etc.) so `claude` is on PATH.
     #[cfg(target_os = "windows")]
     let mut cmd = {
         let linux_dir = wsl_to_linux_path(&config.working_dir);
+
+        let mut parts: Vec<String> = vec![
+            "exec".to_string(),
+            "claude".to_string(),
+            "--print".to_string(),
+            "--output-format".to_string(),
+            "stream-json".to_string(),
+            "--append-system-prompt".to_string(),
+            sh_quote(&config.system_prompt),
+            "--allowedTools".to_string(),
+            sh_quote(&config.allowed_tools.join(",")),
+        ];
+        if let Some(ref sid) = config.resume_session_id {
+            parts.push("--resume".to_string());
+            parts.push(sh_quote(sid));
+        }
+        parts.push(sh_quote(&config.prompt));
+
+        let claude_cmd = parts.join(" ");
+        info!("[process::run] wsl cmd (first 300): {}", &claude_cmd[..claude_cmd.len().min(300)]);
+
         let mut c = Command::new("wsl");
-        // --exec /bin/bash -l -c 'exec claude "$@"' --
-        //
-        // --exec: bypass the WSL login shell so wsl.exe doesn't concatenate
-        //   our args into a single shell string (which caused zsh to interpret
-        //   Bash(git:*) as a glob and error "number expected").
-        // -l: login shell so ~/.profile / nvm are sourced and `claude` is on PATH.
-        // 'exec claude "$@"': "$@" expands each positional arg as a separate
-        //   word — parentheses and wildcards are never re-interpreted.
-        // -- : everything after is positional args ($0, $1, …); the claude
-        //   args we append below become $1, $2, … and land in "$@".
         c.arg("--cd")
             .arg(linux_dir)
             .arg("--exec")
             .arg("/bin/bash")
             .arg("-l")
             .arg("-c")
-            .arg(r#"exec claude "$@""#)
-            .arg("--");
+            .arg(claude_cmd);
         c
     };
+
+    // On Linux/macOS, run claude directly with separate args.
     #[cfg(not(target_os = "windows"))]
-    let mut cmd = Command::new("claude");
+    let mut cmd = {
+        let mut c = Command::new("claude");
+        c.arg("--print")
+            .arg("--output-format")
+            .arg("stream-json")
+            .arg("--append-system-prompt")
+            .arg(&config.system_prompt)
+            .arg("--allowedTools")
+            .arg(config.allowed_tools.join(","));
+        if let Some(ref session_id) = config.resume_session_id {
+            c.arg("--resume").arg(session_id);
+        }
+        c.arg(&config.prompt);
+        c
+    };
 
-    cmd.arg("--print")
-        .arg("--output-format")
-        .arg("stream-json")
-        .arg("--append-system-prompt")
-        .arg(&config.system_prompt)
-        .arg("--allowedTools")
-        .arg(config.allowed_tools.join(","));
-
-    // If resuming a paused session, add --resume <session-id>
-    if let Some(ref session_id) = config.resume_session_id {
-        cmd.arg("--resume").arg(session_id);
-    }
-
-    // The prompt is the last argument
-    cmd.arg(&config.prompt);
-
-    // On Windows, --cd above handles the working directory.
-    // On Linux/macOS, set it directly on the process.
+    // On Linux/macOS, set the working directory directly on the process.
+    // On Windows, --cd above handles it.
     #[cfg(not(target_os = "windows"))]
     cmd.current_dir(&config.working_dir);
 
@@ -222,6 +250,14 @@ mod tests {
     fn node_id_format() {
         let node_id = format!("{}-{}-{}", "agent-1", "ticket-42", 3);
         assert_eq!(node_id, "agent-1-ticket-42-3");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn sh_quote_basic() {
+        assert_eq!(super::sh_quote("hello world"), "'hello world'");
+        assert_eq!(super::sh_quote("Bash(git:*)"), "'Bash(git:*)'");
+        assert_eq!(super::sh_quote("it's fine"), r"'it'\''s fine'");
     }
 
     #[cfg(target_os = "windows")]
