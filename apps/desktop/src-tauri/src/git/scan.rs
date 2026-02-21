@@ -1,6 +1,6 @@
+use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
-use serde::Serialize;
 
 #[derive(Serialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -27,11 +27,17 @@ pub struct RepoInfo {
 }
 
 pub fn detect_provider(remote_url: &str) -> Option<&'static str> {
-    if remote_url.contains("github.com") { Some("github") }
-    else if remote_url.contains("gitlab.com") { Some("gitlab") }
-    else if remote_url.contains("bitbucket.org") { Some("bitbucket") }
-    else if remote_url.contains("dev.azure.com") || remote_url.contains("visualstudio.com") { Some("azure") }
-    else { None }
+    if remote_url.contains("github.com") {
+        Some("github")
+    } else if remote_url.contains("gitlab.com") {
+        Some("gitlab")
+    } else if remote_url.contains("bitbucket.org") {
+        Some("bitbucket")
+    } else if remote_url.contains("dev.azure.com") || remote_url.contains("visualstudio.com") {
+        Some("azure")
+    } else {
+        None
+    }
 }
 
 pub fn get_remote_url(path: &Path) -> Option<String> {
@@ -48,11 +54,13 @@ pub fn get_remote_url(path: &Path) -> Option<String> {
 pub fn scan_folder(path: &Path) -> FolderScanResult {
     // Case 1: path itself is a git repo
     if path.join(".git").exists() {
-        let name = path.file_name()
+        let name = path
+            .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         let remote_url = get_remote_url(path);
-        let provider = remote_url.as_deref()
+        let provider = remote_url
+            .as_deref()
             .and_then(detect_provider)
             .map(String::from);
         return FolderScanResult::SingleRepo {
@@ -73,7 +81,8 @@ pub fn scan_folder(path: &Path) -> FolderScanResult {
             if sub.is_dir() && sub.join(".git").exists() {
                 let name = entry.file_name().to_string_lossy().to_string();
                 let remote_url = get_remote_url(&sub);
-                let provider = remote_url.as_deref()
+                let provider = remote_url
+                    .as_deref()
                     .and_then(detect_provider)
                     .map(String::from);
                 repos.push(RepoInfo {
@@ -89,10 +98,14 @@ pub fn scan_folder(path: &Path) -> FolderScanResult {
     if repos.is_empty() {
         FolderScanResult::NoRepo
     } else {
-        let suggested_name = path.file_name()
+        let suggested_name = path
+            .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        FolderScanResult::MultiRepo { repos, suggested_name }
+        FolderScanResult::MultiRepo {
+            repos,
+            suggested_name,
+        }
     }
 }
 
@@ -102,27 +115,42 @@ mod tests {
 
     #[test]
     fn detects_github_https() {
-        assert_eq!(detect_provider("https://github.com/user/repo"), Some("github"));
+        assert_eq!(
+            detect_provider("https://github.com/user/repo"),
+            Some("github")
+        );
     }
 
     #[test]
     fn detects_github_ssh() {
-        assert_eq!(detect_provider("git@github.com:user/repo.git"), Some("github"));
+        assert_eq!(
+            detect_provider("git@github.com:user/repo.git"),
+            Some("github")
+        );
     }
 
     #[test]
     fn detects_gitlab() {
-        assert_eq!(detect_provider("https://gitlab.com/user/repo"), Some("gitlab"));
+        assert_eq!(
+            detect_provider("https://gitlab.com/user/repo"),
+            Some("gitlab")
+        );
     }
 
     #[test]
     fn detects_bitbucket() {
-        assert_eq!(detect_provider("https://bitbucket.org/user/repo"), Some("bitbucket"));
+        assert_eq!(
+            detect_provider("https://bitbucket.org/user/repo"),
+            Some("bitbucket")
+        );
     }
 
     #[test]
     fn detects_azure() {
-        assert_eq!(detect_provider("https://dev.azure.com/org/project/_git/repo"), Some("azure"));
+        assert_eq!(
+            detect_provider("https://dev.azure.com/org/project/_git/repo"),
+            Some("azure")
+        );
     }
 
     #[test]

@@ -3,14 +3,13 @@ mod context;
 mod git;
 mod github;
 
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use tauri::State;
-use serde::Deserialize;
-use sha2::{Sha256, Digest};
 
 use agent::state::{
-    AgentState, AgentStatus, StateStore,
-    new_store, upsert_agent, all_agents, get_agent, set_status,
+    all_agents, get_agent, new_store, set_status, upsert_agent, AgentState, AgentStatus, StateStore,
 };
 
 /// Global app state — injected into Tauri commands via State<AppState>.
@@ -54,8 +53,8 @@ fn get_all_agents(state: State<'_, AppState>) -> Vec<AgentState> {
 /// Scan a folder and return git repo information.
 /// Returns SingleRepo, MultiRepo (one level deep), or NoRepo.
 #[tauri::command]
-fn scan_folder(path: String) -> git::scan::FolderScanResult {
-    git::scan::scan_folder(std::path::Path::new(&path))
+fn scan_folder(path: String) -> Result<git::scan::FolderScanResult, String> {
+    Ok(git::scan::scan_folder(std::path::Path::new(&path)))
 }
 
 // ── Agent execution commands ──────────────────────────────────────────────────
@@ -241,12 +240,7 @@ async fn start_pr_poll(
     pr_number: u32,
 ) {
     tokio::spawn(github::poller::poll_pr(
-        app,
-        repo,
-        pr_number,
-        agent_id,
-        ticket_id,
-        30, // poll every 30 seconds
+        app, repo, pr_number, agent_id, ticket_id, 30, // poll every 30 seconds
     ));
 }
 
