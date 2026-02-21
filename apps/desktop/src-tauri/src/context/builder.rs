@@ -17,8 +17,8 @@ fn personality_description(personality: &str) -> &'static str {
     match personality {
         "pragmatic" => {
             "You favor proven patterns and shipping quickly. \
-                        Ask clarifying questions only when truly blocked. \
-                        When in doubt, make a reasonable decision and note your reasoning."
+                        When you hit ambiguity, ask one targeted question rather than assuming — \
+                        a precise question gets you unblocked faster than proceeding on a wrong assumption."
         }
         "perfectionist" => {
             "You catch edge cases and push for clean abstractions. \
@@ -102,10 +102,18 @@ pub fn build(input: &ContextInput) -> String {
         {ticket_description}\n\n\
         Acceptance criteria:\n\
         {acceptance_criteria}\n\n\
+        ## When to Ask vs. Proceed\n\
+        You are working asynchronously. ALWAYS ask rather than assume when you encounter:\n\
+        - Requirements with multiple valid interpretations\n\
+        - A design decision with meaningfully different tradeoffs (e.g. two library choices)\n\
+        - Unclear scope — something that might belong in a separate ticket\n\
+        - A risk or dependency the requester may not be aware of\n\
+        - Anything where a wrong assumption could waste significant effort\n\n\
+        To ask: output your question(s) as your final message and stop. Do not continue past a question.\n\
+        The user will reply and your session will be resumed with their answer.\n\n\
         ## Working Instructions\n\
         - Commit your changes with clear messages as you work\n\
         - When ready to create a PR, use: gh pr create --title \"...\" --body \"...\"\n\
-        - If you need clarification before proceeding, ask as your last message\n\
         - Follow existing patterns from the project context above",
         role = input.role,
         project = input.project_name,
