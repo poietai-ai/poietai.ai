@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { StepConnectGitHub } from './StepConnectGitHub';
 import { StepAddProject } from './StepAddProject';
+import { StepCreateAgent } from './StepCreateAgent';
 
 interface Props {
   onComplete: () => void;
@@ -54,15 +55,10 @@ export function OnboardingWizard({ onComplete }: Props) {
           />
         )}
         {step === 3 && (
-          <div className="flex flex-col items-center gap-4">
-            <p className="text-neutral-500 text-sm">Step 3 coming in Task 8</p>
-            <button
-              onClick={onComplete}
-              className="text-xs text-neutral-600 hover:text-neutral-400"
-            >
-              Skip (dev only)
-            </button>
-          </div>
+          <StepCreateAgent
+            onComplete={onComplete}
+            onSkip={onComplete}
+          />
         )}
       </div>
     </div>
