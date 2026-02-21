@@ -59,7 +59,7 @@ export function StepConnectGitHub({ onNext, onSkip }: Props) {
     <div className="max-w-lg w-full">
       <h2 className="text-neutral-100 text-xl font-semibold mb-2">Connect GitHub</h2>
       <p className="text-neutral-400 text-sm mb-6 leading-relaxed">
-        poietai uses your GitHub account to push branches and open pull requests.
+        Poietai.AI uses your GitHub account to push branches and open pull requests.
         You'll need a Personal Access Token — a key you generate on GitHub.
       </p>
 
