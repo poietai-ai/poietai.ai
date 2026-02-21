@@ -10,6 +10,7 @@ pub struct ContextInput<'a> {
     pub ticket_title: &'a str,
     pub ticket_description: &'a str,
     pub ticket_acceptance_criteria: &'a [String],
+    pub agent_id: &'a str,
 }
 
 /// Personality descriptions injected into the system prompt.
@@ -109,8 +110,14 @@ pub fn build(input: &ContextInput) -> String {
         - Unclear scope — something that might belong in a separate ticket\n\
         - A risk or dependency the requester may not be aware of\n\
         - Anything where a wrong assumption could waste significant effort\n\n\
+        Do NOT use the `AskUserQuestion` tool — it is disabled in headless mode and will always error.\n\
+        Do NOT invoke skills (brainstorming, writing-plans, debugging, etc.) — skills are for interactive sessions, not automated agents.\n\n\
         To ask: output your question(s) as your final message and stop. Do not continue past a question.\n\
         The user will reply and your session will be resumed with their answer.\n\n\
+        ## MCP Tools\n\
+        You have an `ask_human` tool available via the poietai MCP server.\n\
+        Use it when you need clarification that would meaningfully change your approach.\n\
+        Always call it with agent_id=\"{agent_id}\" exactly.\n\n\
         ## Working Instructions\n\
         - Commit your changes with clear messages as you work\n\
         - When ready to create a PR, use: gh pr create --title \"...\" --body \"...\"\n\
@@ -125,6 +132,7 @@ pub fn build(input: &ContextInput) -> String {
         ticket_title = input.ticket_title,
         ticket_description = input.ticket_description,
         acceptance_criteria = acceptance_criteria,
+        agent_id = input.agent_id,
     )
 }
 
@@ -151,6 +159,7 @@ mod tests {
             ticket_title: "Fix nil guard in billing service",
             ticket_description: "The subscription pointer is not guarded before deduction.",
             ticket_acceptance_criteria: criteria,
+            agent_id: "test-agent-123",
         };
         build(&input)
     }
@@ -214,8 +223,23 @@ mod tests {
             ticket_title: "Fix nil guard in billing service",
             ticket_description: "The subscription pointer is not guarded before deduction.",
             ticket_acceptance_criteria: &criteria,
+            agent_id: "test-agent-123",
         };
         let prompt = build(&input);
         assert!(prompt.contains("skilled, collaborative"));
+    }
+
+    #[test]
+    fn includes_agent_id_in_mcp_section() {
+        let prompt = build_prompt_with_criteria(&default_criteria());
+        assert!(prompt.contains("test-agent-123"));
+        assert!(prompt.contains("ask_human"));
+    }
+
+    #[test]
+    fn includes_skill_suppression() {
+        let prompt = build_prompt_with_criteria(&default_criteria());
+        assert!(prompt.contains("AskUserQuestion"));
+        assert!(prompt.contains("automated agent"));
     }
 }
