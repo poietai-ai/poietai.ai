@@ -20,7 +20,7 @@ use tokio_stream::wrappers::ReceiverStream;
 /// State held in AppState — provides `answer()` for the answer_agent command.
 pub struct McpState {
     pub port: u16,
-    pub(super) pending_questions:
+    pub(crate) pending_questions:
         Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
 }
 

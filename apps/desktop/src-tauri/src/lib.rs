@@ -7,7 +7,7 @@ mod mcp;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
-use tauri::State;
+use tauri::{Manager, State};
 
 use log::{error, info, warn};
 
@@ -18,6 +18,7 @@ use agent::state::{
 /// Global app state — injected into Tauri commands via State<AppState>.
 pub struct AppState {
     pub agents: StateStore,
+    pub mcp: mcp::McpState,
 }
 
 // ── Agent management commands ─────────────────────────────────────────────────
@@ -257,6 +258,17 @@ async fn start_pr_poll(
     ));
 }
 
+/// Deliver a human reply to a waiting ask_human MCP call.
+/// Called from React when the user submits a reply in the AgentQuestionCard.
+#[tauri::command]
+async fn answer_agent(
+    state: State<'_, AppState>,
+    agent_id: String,
+    reply: String,
+) -> Result<(), String> {
+    state.mcp.answer(&agent_id, reply).await
+}
+
 // ── App entry point ───────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -282,8 +294,23 @@ pub fn run() {
             })
             .build(),
         )
-        .manage(AppState {
-            agents: new_store(),
+        .setup(|app| {
+            // Bind synchronously to grab the port before async runtime takes over.
+            let listener = mcp::bind();
+            let port = mcp::bound_port(&listener);
+            let mcp = mcp::McpState::new(port);
+
+            // Spawn the axum server — it takes a clone of the pending_questions Arc.
+            let pending = mcp.pending_questions.clone();
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(mcp::serve(listener, pending, app_handle));
+
+            app.manage(AppState {
+                agents: new_store(),
+                mcp,
+            });
+
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             create_agent,
@@ -292,6 +319,7 @@ pub fn run() {
             start_agent,
             resume_agent,
             start_pr_poll,
+            answer_agent,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
