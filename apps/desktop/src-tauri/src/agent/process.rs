@@ -79,7 +79,9 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
     let mut cmd = {
         let linux_dir = wsl_to_linux_path(&config.working_dir);
         let mut c = Command::new("wsl");
-        c.arg("--cd").arg(linux_dir).arg("claude");
+        // --exec bypasses the WSL shell (zsh/bash) so parentheses and
+        // wildcards in tool names like Bash(git:*) aren't misinterpreted.
+        c.arg("--cd").arg(linux_dir).arg("--exec").arg("claude");
         c
     };
     #[cfg(not(target_os = "windows"))]
