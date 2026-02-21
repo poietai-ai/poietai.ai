@@ -59,7 +59,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
           ticket_slug: ticket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
           prompt: `${ticket.title}\n\n${ticket.description}`,
           system_prompt: systemPrompt,
-          repo_root: project.repoRoot,
+          repo_root: project.repos[0]?.repoRoot ?? '',
           gh_token: ghToken,
           resume_session_id: null,
         },

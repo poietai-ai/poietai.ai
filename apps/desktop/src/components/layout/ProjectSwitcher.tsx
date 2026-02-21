@@ -27,7 +27,12 @@ export function ProjectSwitcher() {
     const project: Project = {
       id: crypto.randomUUID(),
       name,
-      repoRoot,
+      repos: [{
+        id: crypto.randomUUID(),
+        name,
+        repoRoot,
+        provider: 'github',
+      }],
     };
     await addProject(project);
   };
