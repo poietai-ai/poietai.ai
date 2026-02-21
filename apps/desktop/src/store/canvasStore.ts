@@ -19,6 +19,9 @@ interface CanvasStore {
 // Vertical gap between canvas nodes in pixels.
 const NODE_VERTICAL_SPACING = 130;
 
+// These node types are merged when consecutive: e.g. 10 Reads in a row → one "Read 10 files" node.
+const GROUPABLE: CanvasNodeType[] = ['file_read', 'bash_command', 'file_edit', 'file_write'];
+
 function nodeTypeFromEvent(event: AgentEventKind): CanvasNodeType | null {
   switch (event.type) {
     case 'thinking': return 'thought';
@@ -50,6 +53,18 @@ function filePathFromEvent(event: AgentEventKind): string | undefined {
   return typeof raw === 'string' ? raw : undefined;
 }
 
+/** Human-readable label for a tool call — used as the item label in grouped nodes. */
+function itemLabelFromEvent(event: AgentEventKind): string {
+  if (event.type !== 'tool_use') return '';
+  const fp = filePathFromEvent(event);
+  if (fp) return fp;
+  const cmd = event.tool_input['command'];
+  if (typeof cmd === 'string') return cmd;
+  const pattern = event.tool_input['pattern'];
+  if (typeof pattern === 'string') return pattern;
+  return JSON.stringify(event.tool_input).slice(0, 80);
+}
+
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
   nodes: [],
   edges: [],
@@ -63,7 +78,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   addNodeFromEvent: (payload) => {
     const { nodes, edges, activeTicketId } = get();
-    // Only add nodes when a ticket canvas is active and the event matches it
     if (payload.ticket_id !== activeTicketId) return;
 
     const nodeType = nodeTypeFromEvent(payload.event);
@@ -71,7 +85,24 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
     const content = contentFromEvent(payload.event);
     const filePath = filePathFromEvent(payload.event);
+    const label = itemLabelFromEvent(payload.event);
+
+    // Merge consecutive tool nodes of the same type into one grouped node.
+    if (GROUPABLE.includes(nodeType) && nodes.length > 0) {
+      const last = nodes[nodes.length - 1];
+      if (last.data.nodeType === nodeType) {
+        const prevItems = (last.data.items as string[] | undefined) ?? [];
+        const updatedNode = {
+          ...last,
+          data: { ...last.data, items: [...prevItems, label] },
+        };
+        set({ nodes: [...nodes.slice(0, -1), updatedNode] });
+        return;
+      }
+    }
+
     const yPosition = nodes.length * NODE_VERTICAL_SPACING;
+    const items = GROUPABLE.includes(nodeType) ? [label] : undefined;
 
     const newNode: Node<CanvasNodeData> = {
       id: payload.node_id,
@@ -83,6 +114,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         ticketId: payload.ticket_id,
         content,
         filePath,
+        items,
       },
     };
 

@@ -15,6 +15,7 @@ function BouncingDots() {
 export function ThoughtNode({ data }: NodeProps<CanvasNode>) {
   const isThinking = data.nodeType === 'thought';
   const [revealed, setRevealed] = useState(!isThinking);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!isThinking) return;
@@ -22,17 +23,36 @@ export function ThoughtNode({ data }: NodeProps<CanvasNode>) {
     return () => clearTimeout(timer);
   }, [isThinking]);
 
+  const content = data.content as string;
+  const isLong = content.length > 160;
+
   return (
     <div className="bg-indigo-950 border border-indigo-700 rounded-lg p-3 max-w-xs shadow-lg">
       <Handle type="target" position={Position.Top} className="!bg-indigo-500" />
       <div className="flex items-start gap-2">
         <span className="text-indigo-400 text-sm mt-0.5 flex-shrink-0">💭</span>
-        <p className="text-indigo-100 text-xs leading-relaxed line-clamp-4">
-          {revealed
-            ? data.content
-            : <span className="italic text-indigo-300">Thinking<BouncingDots /></span>
-          }
-        </p>
+        <div className="flex-1 min-w-0">
+          {!revealed ? (
+            <p className="text-indigo-300 text-xs italic">
+              Thinking<BouncingDots />
+            </p>
+          ) : (
+            <>
+              <p className={`text-indigo-100 text-xs leading-relaxed ${!expanded ? 'line-clamp-3' : ''}`}>
+                {content}
+              </p>
+              {isLong && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded(!expanded)}
+                  className="text-indigo-400 hover:text-indigo-200 text-xs mt-1"
+                >
+                  {expanded ? 'show less' : 'show more'}
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
       <Handle type="source" position={Position.Bottom} className="!bg-indigo-500" />
     </div>
