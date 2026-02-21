@@ -14,19 +14,24 @@ async function getStore() {
   return load('settings.json', { defaults: {}, autoSave: true });
 }
 
-export const useSettingsStore = create<SettingsStore>((set) => ({
+export const useSettingsStore = create<SettingsStore>((set, get) => ({
   onboardingComplete: false,
   loaded: false,
 
   loadSettings: async () => {
+    if (get().loaded) return;
     const store = await getStore();
     const onboardingComplete = (await store.get<boolean>('onboardingComplete')) ?? false;
     set({ onboardingComplete, loaded: true });
   },
 
   completeOnboarding: async () => {
-    const store = await getStore();
-    await store.set('onboardingComplete', true);
+    try {
+      const store = await getStore();
+      await store.set('onboardingComplete', true);
+    } catch (e) {
+      console.warn('failed to persist onboardingComplete:', e);
+    }
     set({ onboardingComplete: true });
   },
 }));
