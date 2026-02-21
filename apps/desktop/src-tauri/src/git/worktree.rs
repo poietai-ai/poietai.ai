@@ -47,15 +47,23 @@ pub fn create(config: &WorktreeConfig) -> Result<Worktree> {
     let branch = Worktree::branch_for(&config.ticket_slug);
     let path = Worktree::path_for(&config.repo_root, &config.ticket_id);
 
-    // If the path already exists, remove the old worktree so the branch
-    // is no longer "checked out" — git refuses to add a worktree whose
-    // branch is live in another worktree, even with -B.
+    // If the path already exists, clean it up so git can create a fresh worktree.
+    // We try two things:
+    //  1. `git worktree remove --force` — deregisters it and deletes the dir if
+    //     git knows about it.
+    //  2. `std::fs::remove_dir_all` — handles the case where the directory is
+    //     orphaned (not in git's registry, e.g. left over from a previous run on
+    //     a different OS/path), which causes `git worktree add` to fail with
+    //     "fatal: '...' already exists".
     if path.exists() {
         let _ = Command::new("git")
             .args(["worktree", "remove", "--force"])
             .arg(&path)
             .current_dir(&config.repo_root)
             .output();
+        // Remove the directory regardless — git may not have cleaned it up if
+        // the path wasn't in its registry.
+        let _ = std::fs::remove_dir_all(&path);
     }
 
     // Prune any stale entries left in .git/worktrees/.
