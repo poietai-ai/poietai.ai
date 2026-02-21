@@ -133,15 +133,18 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
             .map(|sid| format!("--resume {}", sh_quote(sid)))
             .unwrap_or_default();
 
+        // --allowedTools is variadic and must come BEFORE --append-system-prompt
+        // so the flag interrupts the variadic and the prompt isn't consumed.
         let script_content = format!(
             "#!/bin/bash\n\
              exec claude --print --output-format stream-json \\\n  \
-             --append-system-prompt {} \\\n  \
              --allowedTools {} \\\n  \
-             {} {}\n",
-            sh_quote(&config.system_prompt),
+             {} \\\n  \
+             --append-system-prompt {} \\\n  \
+             {}\n",
             sh_quote(&config.allowed_tools.join(",")),
             resume_part,
+            sh_quote(&config.system_prompt),
             sh_quote(&config.prompt),
         );
 
@@ -171,20 +174,26 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
     };
 
     // On Linux/macOS, run claude directly with separate args — no shell involved.
+    //
+    // Argument order matters: --allowedTools is variadic (<tools...>) and greedily
+    // consumes following non-flag args. We place it BEFORE --append-system-prompt
+    // so the flag interrupts the variadic and the prompt arrives as intended.
+    //
+    // Order: --allowedTools "..." [--resume "..."] --append-system-prompt "..." "PROMPT"
     #[cfg(not(target_os = "windows"))]
     let (mut cmd, temp_script) = {
         let mut c = Command::new("claude");
         c.arg("--print")
             .arg("--output-format")
             .arg("stream-json")
-            .arg("--append-system-prompt")
-            .arg(&config.system_prompt)
             .arg("--allowedTools")
             .arg(config.allowed_tools.join(","));
         if let Some(ref session_id) = config.resume_session_id {
             c.arg("--resume").arg(session_id);
         }
-        c.arg(&config.prompt);
+        c.arg("--append-system-prompt")
+            .arg(&config.system_prompt)
+            .arg(&config.prompt);
         (c, None::<PathBuf>)
     };
 
