@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ReactFlow, Background, Controls, BackgroundVariant } from '@xyflow/react';
 import { listen } from '@tauri-apps/api/event';
 import '@xyflow/react/dist/style.css';
@@ -6,7 +6,8 @@ import '@xyflow/react/dist/style.css';
 import { useCanvasStore } from '../../store/canvasStore';
 import { nodeTypes } from './nodes';
 import { AskUserOverlay } from './AskUserOverlay';
-import type { CanvasNodePayload } from '../../types/canvas';
+import { AgentQuestionCard } from './AgentQuestionCard';
+import type { CanvasNodePayload, AgentQuestionPayload } from '../../types/canvas';
 
 interface AgentResultPayload {
   agent_id: string;
@@ -25,6 +26,9 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
     awaitingQuestion, awaitingSessionId,
     setAwaiting, clearAwaiting,
   } = useCanvasStore();
+
+  // Active mid-task questions from ask_human MCP calls (agent stays running)
+  const [activeQuestions, setActiveQuestions] = useState<AgentQuestionPayload[]>([]);
 
   useEffect(() => {
     setActiveTicket(ticketId);
@@ -57,6 +61,22 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
     return () => { unlisten.then((fn) => fn()); };
   }, [setAwaiting]);
 
+  // Listen for mid-task questions from ask_human MCP calls (agent is still running)
+  useEffect(() => {
+    const unlisten = listen<AgentQuestionPayload>('agent-question', (event) => {
+      setActiveQuestions((prev) => {
+        // Deduplicate by agent_id — replace if already asking
+        const filtered = prev.filter((q) => q.agent_id !== event.payload.agent_id);
+        return [...filtered, event.payload];
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  const handleQuestionAnswered = (agentId: string) => {
+    setActiveQuestions((prev) => prev.filter((q) => q.agent_id !== agentId));
+  };
+
   const lastNode = nodes.length > 0 ? nodes[nodes.length - 1] : null;
   const agentId = lastNode ? String(lastNode.data.agentId ?? '') : '';
 
@@ -79,6 +99,20 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
         <Controls />
       </ReactFlow>
 
+      {/* Mid-task questions — agent is still running, waiting for reply */}
+      {activeQuestions.length > 0 && (
+        <div className="absolute bottom-4 left-4 right-4 flex flex-col gap-2 pointer-events-auto">
+          {activeQuestions.map((q) => (
+            <AgentQuestionCard
+              key={q.agent_id}
+              payload={q}
+              onAnswered={handleQuestionAnswered}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* End-of-run question — agent exited, will resume via --resume */}
       {awaitingQuestion && awaitingSessionId && (
         <AskUserOverlay
           question={awaitingQuestion}

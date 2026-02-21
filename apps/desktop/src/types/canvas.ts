@@ -45,3 +45,10 @@ export interface CanvasNodeData extends Record<string, unknown> {
 
 // Full node type for use in NodeProps — wraps CanvasNodeData in @xyflow/react's Node shape.
 export type CanvasNode = Node<CanvasNodeData>;
+
+/// Emitted by Tauri when Claude calls ask_human mid-task.
+/// Agent stays running — answer via invoke('answer_agent', { agentId, reply }).
+export interface AgentQuestionPayload {
+  agent_id: string;
+  question: string;
+}

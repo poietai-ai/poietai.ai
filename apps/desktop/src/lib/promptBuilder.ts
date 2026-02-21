@@ -2,6 +2,7 @@
 // Used for quick prompt assembly from the React layer without an invoke round-trip.
 
 interface PromptInput {
+  agentId: string;
   role: string;
   personality: string;
   projectName: string;
@@ -31,5 +32,14 @@ export function buildPrompt(input: PromptInput): string {
     ``,
     `Acceptance criteria:`,
     criteria || `No explicit criteria — use good judgment.`,
+    ``,
+    `## Tool Restrictions`,
+    `Do NOT use the \`AskUserQuestion\` tool — it is disabled in headless mode and will always error.`,
+    `Do NOT invoke skills (brainstorming, writing-plans, debugging, etc.) — skills are for interactive sessions, not automated agents.`,
+    ``,
+    `## MCP Tools`,
+    `You have an \`ask_human\` tool available via the poietai MCP server.`,
+    `Use it when you need clarification that would meaningfully change your approach.`,
+    `Always call it with agent_id="${input.agentId}" exactly.`,
   ].join('\n');
 }
