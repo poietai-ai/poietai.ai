@@ -27,18 +27,25 @@ export function StepAddProject({ onNext, onSkip }: Props) {
   const [projectName, setProjectName] = useState('');
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handlePick = async () => {
     const selected = await open({ directory: true, multiple: false, title: 'Select project folder' });
     if (!selected) return;
-    const result = await invoke<ScanResult>('scan_folder', { path: selected as string });
-    setScanResult(result);
-    if (result.type === 'single_repo') {
-      setProjectName(result.name);
-      setSelectedRepos(new Set([result.repo_root]));
-    } else if (result.type === 'multi_repo') {
-      setProjectName(result.suggested_name);
-      setSelectedRepos(new Set(result.repos.map((r) => r.repo_root)));
+    setError(null);
+    try {
+      const result = await invoke<ScanResult>('scan_folder', { path: selected });
+      setScanResult(result);
+      if (result.type === 'single_repo') {
+        setProjectName(result.name);
+        setSelectedRepos(new Set([result.repo_root]));
+      } else if (result.type === 'multi_repo') {
+        setProjectName(result.suggested_name);
+        setSelectedRepos(new Set(result.repos.map((r) => r.repo_root)));
+      }
+    } catch (e) {
+      console.error('scan_folder failed:', e);
+      setError('Could not scan the folder. Please try again.');
     }
   };
 
@@ -54,32 +61,34 @@ export function StepAddProject({ onNext, onSkip }: Props) {
   const handleSave = async () => {
     if (!projectName.trim() || selectedRepos.size === 0) return;
     setSaving(true);
-
-    let repos: Repo[] = [];
-    if (scanResult?.type === 'single_repo') {
-      repos = [{
-        id: crypto.randomUUID(),
-        name: scanResult.name,
-        repoRoot: scanResult.repo_root,
-        remoteUrl: scanResult.remote_url,
-        provider: (scanResult.provider ?? 'github') as Repo['provider'],
-      }];
-    } else if (scanResult?.type === 'multi_repo') {
-      repos = scanResult.repos
-        .filter((r) => selectedRepos.has(r.repo_root))
-        .map((r) => ({
+    try {
+      let repos: Repo[] = [];
+      if (scanResult?.type === 'single_repo') {
+        repos = [{
           id: crypto.randomUUID(),
-          name: r.name,
-          repoRoot: r.repo_root,
-          remoteUrl: r.remote_url,
-          provider: (r.provider ?? 'github') as Repo['provider'],
-        }));
-    }
+          name: scanResult.name,
+          repoRoot: scanResult.repo_root,
+          remoteUrl: scanResult.remote_url,
+          provider: (scanResult.provider ?? 'github') as Repo['provider'],
+        }];
+      } else if (scanResult?.type === 'multi_repo') {
+        repos = scanResult.repos
+          .filter((r) => selectedRepos.has(r.repo_root))
+          .map((r) => ({
+            id: crypto.randomUUID(),
+            name: r.name,
+            repoRoot: r.repo_root,
+            remoteUrl: r.remote_url,
+            provider: (r.provider ?? 'github') as Repo['provider'],
+          }));
+      }
 
-    const project: Project = { id: crypto.randomUUID(), name: projectName.trim(), repos };
-    await addProject(project);
-    setSaving(false);
-    onNext();
+      const project: Project = { id: crypto.randomUUID(), name: projectName.trim(), repos };
+      await addProject(project);
+      onNext();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -97,6 +106,10 @@ export function StepAddProject({ onNext, onSkip }: Props) {
       >
         {scanResult ? '↺ Pick a different folder' : '+ Select project folder'}
       </button>
+
+      {error && (
+        <p className="text-red-400 text-xs mb-4">{error}</p>
+      )}
 
       {scanResult?.type === 'no_repo' && (
         <p className="text-red-400 text-xs mb-4">
