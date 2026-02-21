@@ -37,6 +37,7 @@ async function writeFallbackTokens(tokens: Partial<Record<GitProvider, string>>)
 
 async function getInstallKey(): Promise<string> {
   const dir = await appDataDir();
+  await mkdir(dir, { recursive: true });
   const keyPath = await join(dir, 'install.key');
   if (await exists(keyPath)) {
     return readTextFile(keyPath);
