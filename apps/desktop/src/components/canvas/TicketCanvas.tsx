@@ -61,20 +61,20 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
   const agentId = lastNode ? String(lastNode.data.agentId ?? '') : '';
 
   return (
-    <div className="relative w-full h-full bg-neutral-950">
+    <div className="relative w-full h-full bg-zinc-50">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
-        colorMode="dark"
+        colorMode="light"
         proOptions={{ hideAttribution: true }}
       >
         <Background
           variant={BackgroundVariant.Dots}
           gap={24}
           size={1}
-          color="#333"
+          color="#d4d4d8"
         />
         <Controls />
       </ReactFlow>
