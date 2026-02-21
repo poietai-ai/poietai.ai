@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use super::events::{parse_event, AgentEvent};
+use super::events::{parse_events, AgentEvent};
 
 /// Payload sent to the React frontend for each canvas node.
 #[derive(Debug, Clone, Serialize)]
@@ -234,9 +234,12 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
             continue;
         }
 
-        info!("[process::run] line: {}", &line[..line.len().min(200)]);
+        info!(
+            "[process::run] line: {}",
+            line.chars().take(200).collect::<String>()
+        );
 
-        if let Some(event) = parse_event(&line) {
+        for event in parse_events(&line) {
             // Capture session_id from Result events for pause/resume
             if let AgentEvent::Result { ref session_id, .. } = event {
                 last_session_id = session_id.clone();
