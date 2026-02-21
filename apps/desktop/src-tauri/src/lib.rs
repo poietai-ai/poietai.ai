@@ -2,6 +2,7 @@ mod agent;
 mod context;
 mod git;
 mod github;
+mod mcp;
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
