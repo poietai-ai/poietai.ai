@@ -41,6 +41,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
     if (!repo) return;
 
     const systemPrompt = buildPrompt({
+      agentId: agent.id,
       role: agent.role,
       personality: agent.personality,
       projectName: project.name,
