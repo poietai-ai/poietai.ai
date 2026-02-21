@@ -1,5 +1,5 @@
 // apps/desktop/src/components/layout/SettingsPanel.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSecretsStore } from '../../store/secretsStore';
 
 interface Props {
@@ -20,12 +20,21 @@ export function SettingsPanel({ onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [showInstructions, setShowInstructions] = useState(false);
   const [connection, setConnection] = useState<ConnectionStatus>({ state: 'idle' });
+  const tokenInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!saved) return;
     const id = setTimeout(() => setSaved(false), 2000);
     return () => clearTimeout(id);
   }, [saved]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const handleTest = async () => {
     if (!draft.trim()) return;
@@ -71,7 +80,7 @@ export function SettingsPanel({ onClose }: Props) {
       <div className="bg-neutral-900 border border-neutral-700 rounded-xl p-5 w-[480px] shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
           <h2 id="settings-title" className="text-neutral-100 font-semibold">Settings</h2>
-          <button onClick={onClose} aria-label="Close settings"
+          <button type="button" onClick={onClose} aria-label="Close settings"
             className="text-neutral-500 hover:text-neutral-300 text-xl leading-none">×</button>
         </div>
 
@@ -96,7 +105,7 @@ export function SettingsPanel({ onClose }: Props) {
             ) : (
               <button
                 type="button"
-                onClick={() => document.getElementById('gh-token')?.focus()}
+                onClick={() => tokenInputRef.current?.focus()}
                 className="text-xs px-2 py-0.5 rounded-full bg-amber-950 text-amber-400 hover:text-amber-300 transition-colors"
               >
                 ✗ Not connected — Add token →
@@ -135,6 +144,7 @@ export function SettingsPanel({ onClose }: Props) {
           <div className="flex gap-2 mb-2">
             <input
               id="gh-token"
+              ref={tokenInputRef}
               type="password"
               value={draft}
               onChange={(e) => { setDraft(e.target.value); setConnection({ state: 'idle' }); }}
@@ -165,7 +175,7 @@ export function SettingsPanel({ onClose }: Props) {
         </div>
 
         <div className="flex gap-2 justify-end border-t border-neutral-800 pt-4">
-          <button onClick={onClose}
+          <button type="button" onClick={onClose}
             className="text-sm text-neutral-400 hover:text-neutral-200 px-3 py-1.5">
             Cancel
           </button>
