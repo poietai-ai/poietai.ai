@@ -66,7 +66,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
         },
       });
       // Only mutate ticket state after the invoke succeeds — no rollback needed.
-      assignTicket(ticket.id, agent.id);
+      assignTicket(ticket.id, { agentId: agent.id, repoId: '' }); // repoId wired in Task 9
       updateTicketStatus(ticket.id, 'in_progress');
       setActiveTicket(ticket.id);
       onOpenCanvas(ticket.id);
@@ -98,13 +98,16 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
           </span>
         </div>
 
-        {ticket.assignedAgentId ? (
+        {ticket.assignments.length > 0 ? (
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-indigo-700 text-xs text-white
                             flex items-center justify-center">
               A
             </div>
-            <span className="text-neutral-500 text-xs truncate">{ticket.assignedAgentId}</span>
+            <span className="text-neutral-500 text-xs truncate">
+              {ticket.assignments[0].agentId}
+              {ticket.assignments.length > 1 && ` +${ticket.assignments.length - 1}`}
+            </span>
           </div>
         ) : (
           <button
