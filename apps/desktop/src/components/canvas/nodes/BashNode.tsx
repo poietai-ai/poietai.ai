@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Terminal, ChevronDown, ChevronUp } from 'lucide-react';
 import type { CanvasNode } from '../../../types/canvas';
 
 function extractCommand(raw: string): string {
@@ -21,13 +22,12 @@ export function BashNode({ data }: NodeProps<CanvasNode>) {
   const items = data.items as string[] | undefined;
   const count = items?.length ?? 0;
 
-  // Single-item mode: extract command from the stored JSON content
   const singleCommand = count <= 1
     ? shortCmd(items?.[0] ?? extractCommand(data.content))
     : null;
 
   return (
-    <div className="bg-orange-950 border border-orange-700 rounded-lg p-3 max-w-xs shadow-lg">
+    <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-3 max-w-xs shadow-sm">
       <Handle type="target" position={Position.Top} />
 
       <button
@@ -35,20 +35,22 @@ export function BashNode({ data }: NodeProps<CanvasNode>) {
         onClick={() => count > 1 && setExpanded(!expanded)}
         className="flex items-start gap-2 w-full text-left"
       >
-        <span className="text-orange-400 text-sm mt-0.5 flex-shrink-0">⚙️</span>
-        <code className="text-orange-100 text-xs font-mono flex-1 truncate">
+        <Terminal size={14} strokeWidth={1.5} className="text-zinc-400 mt-0.5 flex-shrink-0" />
+        <code className="text-zinc-100 text-xs font-mono flex-1 truncate">
           {count > 1 ? `${count} commands` : singleCommand}
         </code>
         {count > 1 && (
-          <span className="text-neutral-500 text-xs flex-shrink-0">{expanded ? '▲' : '▼'}</span>
+          <span className="text-zinc-500 flex-shrink-0">
+            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </span>
         )}
       </button>
 
       {expanded && (
-        <ul className="mt-2 space-y-1 max-h-36 overflow-y-auto border-t border-white/10 pt-2">
+        <ul className="mt-2 space-y-1 max-h-36 overflow-y-auto border-t border-zinc-700 pt-2">
           {items!.map((item, i) => (
             <li key={i}>
-              <code className="text-orange-100 text-xs font-mono opacity-75 block truncate">
+              <code className="text-zinc-300 text-xs font-mono block truncate">
                 {shortCmd(item)}
               </code>
             </li>
