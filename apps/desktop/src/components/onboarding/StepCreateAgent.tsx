@@ -76,6 +76,7 @@ export function StepCreateAgent({ onComplete, onSkip }: Props) {
       <div className="grid grid-cols-2 gap-2 mb-4">
         {ROLES.map((r) => (
           <button
+            type="button"
             key={r.value}
             onClick={() => setRole(r.value)}
             className={`text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
@@ -94,6 +95,7 @@ export function StepCreateAgent({ onComplete, onSkip }: Props) {
       <div className="grid grid-cols-2 gap-2 mb-4">
         {PERSONALITIES.map((p) => (
           <button
+            type="button"
             key={p.value}
             onClick={() => setPersonality(p.value)}
             className={`text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
