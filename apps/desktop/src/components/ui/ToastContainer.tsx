@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { X } from 'lucide-react';
 import { useToastStore, type AgentToast } from '../../store/toastStore';
 
 const AUTO_DISMISS_MS = 6000;
@@ -12,14 +13,13 @@ function Toast({ toast, onDismiss }: { toast: AgentToast; onDismiss: (id: string
   return (
     <div
       className={`flex items-start gap-3 rounded-xl p-3 shadow-2xl w-80
-                  bg-neutral-800 border transition-all
+                  bg-zinc-800 border transition-all
                   ${toast.isQuestion
                     ? 'border-amber-500/60'
-                    : 'border-neutral-600/60'
+                    : 'border-zinc-600/60'
                   }`}
     >
-      {/* Agent avatar */}
-      <div className="w-9 h-9 rounded-full bg-indigo-700 flex items-center justify-center
+      <div className="w-9 h-9 rounded-full bg-violet-700 flex items-center justify-center
                       text-white text-sm font-bold flex-shrink-0">
         {toast.agentName[0]?.toUpperCase() ?? '?'}
       </div>
@@ -31,7 +31,7 @@ function Toast({ toast, onDismiss }: { toast: AgentToast; onDismiss: (id: string
             <span className="text-amber-400 text-xs flex-shrink-0">needs your input</span>
           )}
         </div>
-        <p className="text-neutral-300 text-xs leading-relaxed line-clamp-2">
+        <p className="text-zinc-300 text-xs leading-relaxed line-clamp-2">
           {toast.message}
         </p>
       </div>
@@ -39,9 +39,9 @@ function Toast({ toast, onDismiss }: { toast: AgentToast; onDismiss: (id: string
       <button
         type="button"
         onClick={() => onDismiss(toast.id)}
-        className="text-neutral-500 hover:text-neutral-300 text-sm flex-shrink-0 mt-0.5"
+        className="text-zinc-500 hover:text-zinc-300 flex-shrink-0 mt-0.5 transition-colors"
       >
-        ✕
+        <X size={14} />
       </button>
     </div>
   );
