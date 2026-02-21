@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use log::{error, info, warn};
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
@@ -116,7 +117,10 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::inherit());
 
+    info!("[process::run] agent={} ticket={} working_dir={:?}", config.agent_id, config.ticket_id, config.working_dir);
+
     let mut child = cmd.spawn().context("failed to spawn claude process")?;
+    info!("[process::run] claude spawned pid={:?}", child.id());
 
     let stdout = child.stdout.take().expect("stdout was not piped");
     let mut lines = BufReader::new(stdout).lines();
@@ -134,6 +138,8 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
         if line.is_empty() {
             continue;
         }
+
+        info!("[process::run] line: {}", &line[..line.len().min(200)]);
 
         if let Some(event) = parse_event(&line) {
             // Capture session_id from Result events for pause/resume
@@ -160,6 +166,8 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
         .wait()
         .await
         .context("failed to wait for claude process")?;
+
+    info!("[process::run] claude exited status={} agent={} ticket={}", status, config.agent_id, config.ticket_id);
 
     // Emit the completion event regardless of exit status
     // React uses this to show the ask-user overlay if needed

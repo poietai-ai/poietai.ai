@@ -8,6 +8,8 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use tauri::State;
 
+use log::{error, info, warn};
+
 use agent::state::{
     all_agents, get_agent, new_store, set_status, upsert_agent, AgentState, AgentStatus, StateStore,
 };
@@ -86,6 +88,8 @@ async fn start_agent(
     let repo_root = PathBuf::from(&payload.repo_root);
     let agents_store = state.agents.clone();
 
+    info!("[start_agent] agent={} ticket={} repo={}", payload.agent_id, payload.ticket_id, payload.repo_root);
+
     // Mark agent as working
     set_status(&agents_store, &payload.agent_id, AgentStatus::Working);
     if let Some(mut a) = get_agent(&agents_store, &payload.agent_id) {
@@ -106,8 +110,13 @@ async fn start_agent(
         agent_email: format!("{}@poietai.ai", agent.role),
     };
 
+    info!("[start_agent] creating worktree for ticket={}", payload.ticket_id);
     let worktree = git::worktree::create(&wt_config)
-        .map_err(|e| format!("failed to create worktree: {}", e))?;
+        .map_err(|e| {
+            error!("[start_agent] worktree creation failed: {}", e);
+            format!("failed to create worktree: {}", e)
+        })?;
+    info!("[start_agent] worktree created at {:?}", worktree.path);
 
     // Save worktree path to agent state
     if let Some(mut a) = get_agent(&agents_store, &payload.agent_id) {
@@ -140,17 +149,20 @@ async fn start_agent(
     let agents_store_clone = agents_store.clone();
     let agent_id = payload.agent_id.clone();
 
+    info!("[start_agent] spawning claude process for agent={}", payload.agent_id);
+
     // Spawn the agent run as a background task — this command returns immediately
     tokio::spawn(async move {
         match agent::process::run(run_config, app_clone).await {
             Ok(session_id) => {
+                info!("[start_agent] agent={} completed, session={:?}", agent_id, session_id);
                 if let Some(sid) = session_id {
                     agent::state::save_session_id(&agents_store_clone, &agent_id, &sid);
                 }
                 set_status(&agents_store_clone, &agent_id, AgentStatus::Idle);
             }
             Err(e) => {
-                eprintln!("agent '{}' run failed: {}", agent_id, e);
+                error!("[start_agent] agent={} run failed: {}", agent_id, e);
                 set_status(&agents_store_clone, &agent_id, AgentStatus::Blocked);
             }
         }
@@ -249,6 +261,11 @@ async fn start_pr_poll(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
