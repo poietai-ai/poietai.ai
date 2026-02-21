@@ -55,9 +55,13 @@ export function ProjectSwitcher() {
       ))}
       <button
         onClick={handleAdd}
-        title="Add project"
-        className="w-9 h-9 rounded-xl bg-neutral-800 text-neutral-400 hover:bg-neutral-700
-                   hover:text-neutral-200 text-xl flex items-center justify-center transition-colors"
+        title={loaded && projects.length === 0 ? 'Add your first project' : 'Add project'}
+        className={`w-9 h-9 rounded-xl bg-neutral-800 text-neutral-400
+                    hover:bg-neutral-700 hover:text-neutral-200 text-xl
+                    flex items-center justify-center transition-colors
+                    ${loaded && projects.length === 0
+                      ? 'animate-pulse ring-2 ring-indigo-500 ring-offset-1 ring-offset-neutral-950'
+                      : ''}`}
       >
         +
       </button>

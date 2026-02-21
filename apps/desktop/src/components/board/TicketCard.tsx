@@ -24,6 +24,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
   const { assignTicket, updateTicketStatus } = useTicketStore();
   const { setActiveTicket } = useCanvasStore();
   const { projects, activeProjectId } = useProjectStore();
+  const { ghToken } = useSecretsStore();
   const [showPicker, setShowPicker] = useState(false);
 
   const activeProject = projects.find((p) => p.id === activeProjectId);
@@ -113,8 +114,12 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
         ) : (
           <button
             onClick={(e) => { e.stopPropagation(); setShowPicker(true); }}
-            disabled={!activeProject}
-            title={activeProject ? 'Assign an agent' : 'Select a project first'}
+            disabled={!activeProject || !ghToken}
+            title={
+              !activeProject ? 'Select a project first' :
+              !ghToken ? 'Add a GitHub token in Settings first' :
+              'Assign an agent'
+            }
             className="text-xs text-indigo-400 hover:text-indigo-300 opacity-0
                        group-hover:opacity-100 transition-opacity
                        disabled:opacity-30 disabled:cursor-not-allowed"
