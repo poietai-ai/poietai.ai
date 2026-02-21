@@ -137,7 +137,7 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
         // so the flag interrupts the variadic and the prompt isn't consumed.
         let script_content = format!(
             "#!/bin/bash\n\
-             exec claude --print --output-format stream-json \\\n  \
+             exec claude --print --verbose --output-format stream-json \\\n  \
              --allowedTools {} \\\n  \
              {} \\\n  \
              --append-system-prompt {} \\\n  \
@@ -184,6 +184,7 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
     let (mut cmd, temp_script) = {
         let mut c = Command::new("claude");
         c.arg("--print")
+            .arg("--verbose")
             .arg("--output-format")
             .arg("stream-json")
             .arg("--allowedTools")
