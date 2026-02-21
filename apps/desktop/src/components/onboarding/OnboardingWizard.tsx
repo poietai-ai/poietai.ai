@@ -1,6 +1,7 @@
 // apps/desktop/src/components/onboarding/OnboardingWizard.tsx
 import { useState } from 'react';
 import { StepConnectGitHub } from './StepConnectGitHub';
+import { StepAddProject } from './StepAddProject';
 
 interface Props {
   onComplete: () => void;
@@ -47,7 +48,10 @@ export function OnboardingWizard({ onComplete }: Props) {
           />
         )}
         {step === 2 && (
-          <div className="text-neutral-500 text-sm">Step 2 coming in Task 7</div>
+          <StepAddProject
+            onNext={() => setStep(3)}
+            onSkip={() => setStep(3)}
+          />
         )}
         {step === 3 && (
           <div className="flex flex-col items-center gap-4">
