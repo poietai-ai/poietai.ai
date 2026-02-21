@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { Stronghold } from '@tauri-apps/plugin-stronghold';
 import { appDataDir, join } from '@tauri-apps/api/path';
-import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs';
+import { readTextFile, writeTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
 
 export type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'azure';
 
@@ -29,6 +29,8 @@ async function readFallbackTokens(): Promise<Partial<Record<GitProvider, string>
 }
 
 async function writeFallbackTokens(tokens: Partial<Record<GitProvider, string>>): Promise<void> {
+  const dir = await appDataDir();
+  await mkdir(dir, { recursive: true });
   const path = await getFallbackPath();
   await writeTextFile(path, JSON.stringify(tokens, null, 2));
 }
