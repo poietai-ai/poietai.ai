@@ -43,10 +43,9 @@ pub struct AgentRunConfig {
     pub resume_session_id: Option<String>,
 }
 
-/// Wrap a string in POSIX single quotes for safe embedding in a shell -c string.
+/// Wrap a string in POSIX single quotes for safe embedding in a shell script.
 /// Single quotes prevent ALL shell interpretation (globs, parameter expansion, etc.).
-/// The only character that can't appear inside single quotes is `'` itself,
-/// which we handle by ending the quote, escaping the apostrophe, and reopening.
+/// A single quote inside is handled by: end quote → escaped apostrophe → reopen quote.
 #[cfg(target_os = "windows")]
 fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
@@ -72,6 +71,22 @@ fn wsl_to_linux_path(path: &PathBuf) -> String {
     s.into_owned()
 }
 
+/// On Windows, extract `\\wsl.localhost\Ubuntu` (or `\\wsl$\Ubuntu`) from a
+/// full UNC WSL path. Used to build paths into the WSL filesystem from Windows.
+#[cfg(target_os = "windows")]
+fn wsl_distro_root(path: &PathBuf) -> Option<String> {
+    let s = path.to_string_lossy();
+    if s.starts_with("\\\\wsl") {
+        let mut parts = s.splitn(5, '\\');
+        parts.next(); // ""
+        parts.next(); // ""
+        let server = parts.next()?; // "wsl.localhost" or "wsl$"
+        let distro = parts.next()?; // e.g. "Ubuntu"
+        return Some(format!("\\\\{}\\{}", server, distro));
+    }
+    None
+}
+
 /// Run the agent and stream events to the React frontend.
 ///
 /// This function is async. Call it from a tokio::spawn block.
@@ -81,69 +96,83 @@ fn wsl_to_linux_path(path: &PathBuf) -> String {
 /// - "agent-event": one per parsed JSONL line, with the canvas node payload
 /// - "agent-result": once at the end, with the session ID (for pause/resume)
 pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String>> {
+    info!(
+        "[process::run] agent={} ticket={} working_dir={:?}",
+        config.agent_id, config.ticket_id, config.working_dir
+    );
+
     // On Windows, claude lives inside WSL2.
-    // We use `wsl --exec /bin/bash -l -c '<cmd_string>'` where the entire
-    // claude invocation is baked into the -c string with POSIX single-quoting.
     //
-    // Why not "$@" approach: wsl.exe treats `--` as its own option
-    // ("pass remaining to default shell"), consuming it before bash sees it,
-    // which caused --print to land in $0 (not $@) and be silently dropped.
+    // We write a small bash script directly to the WSL filesystem via its UNC
+    // path (e.g. \\wsl.localhost\Ubuntu\tmp\poietai-<uuid>.sh), then execute
+    // it with `wsl --exec /bin/bash -l <script>`.
     //
-    // Why single-quote each arg: prevents bash/zsh from glob-expanding
-    // Bash(git:*) or interpreting special chars in the prompt/system-prompt.
+    // This sidesteps every argument-passing problem we hit with -c "...":
+    //  - Windows CreateProcessW quoting of multi-line / double-quote-containing strings
+    //  - WSL consuming `--` before bash sees it
+    //  - WSLENV not forwarding env vars through --exec
     //
-    // Why -l: loads the login profile (nvm etc.) so `claude` is on PATH.
+    // The script file lives on the Linux filesystem so bash reads it directly.
+    // POSIX single-quoting inside the script handles any special chars in the
+    // system prompt, prompt, or tool names.
+    // -l loads the login profile so nvm / claude are on PATH.
     #[cfg(target_os = "windows")]
-    let mut cmd = {
+    let (mut cmd, temp_script) = {
         let linux_dir = wsl_to_linux_path(&config.working_dir);
 
-        // Pass system_prompt and prompt via environment variables (through WSLENV)
-        // rather than embedding them in the shell -c string.
-        //
-        // The -c string would otherwise contain the system prompt verbatim, which
-        // includes double-quotes (e.g. `gh pr create --title "..."`). Those
-        // double-quotes break Windows command-line quoting when Tokio wraps the
-        // entire -c arg in "..." for CreateProcessW.
-        //
-        // With env vars:
-        //   - WSLENV tells WSL to forward POIETAI_SYS and POIETAI_PROMPT to Linux
-        //   - "$POIETAI_SYS" / "$POIETAI_PROMPT" in bash are double-quoted so bash
-        //     expands them verbatim (newlines, single quotes, all preserved; no
-        //     glob or parameter re-interpretation)
-        //   - The -c string itself is a single clean line with no double-quotes
+        let distro_root = wsl_distro_root(&config.working_dir).ok_or_else(|| {
+            anyhow::anyhow!(
+                "cannot determine WSL distro root from path: {:?}",
+                config.working_dir
+            )
+        })?;
+
         let resume_part = config
             .resume_session_id
             .as_deref()
             .map(|sid| format!("--resume {}", sh_quote(sid)))
             .unwrap_or_default();
 
-        let claude_cmd = format!(
-            "exec claude --print --output-format stream-json \
-             --append-system-prompt \"$POIETAI_SYS\" \
-             --allowedTools {} {} \"$POIETAI_PROMPT\"",
+        let script_content = format!(
+            "#!/bin/bash\n\
+             exec claude --print --output-format stream-json \\\n  \
+             --append-system-prompt {} \\\n  \
+             --allowedTools {} \\\n  \
+             {} {}\n",
+            sh_quote(&config.system_prompt),
             sh_quote(&config.allowed_tools.join(",")),
             resume_part,
+            sh_quote(&config.prompt),
         );
 
-        info!("[process::run] wsl cmd: {}", &claude_cmd);
+        // Write the script to WSL's /tmp/ via the UNC path.
+        let script_name = format!("poietai-{}.sh", uuid::Uuid::new_v4());
+        let script_win_path =
+            PathBuf::from(format!("{}\\tmp\\{}", distro_root, script_name));
+        let script_linux_path = format!("/tmp/{}", script_name);
+
+        std::fs::write(&script_win_path, script_content.as_bytes())
+            .with_context(|| format!("failed to write agent script to {:?}", script_win_path))?;
+
+        info!(
+            "[process::run] wrote script to {:?} (linux: {})",
+            script_win_path, script_linux_path
+        );
 
         let mut c = Command::new("wsl");
         c.arg("--cd")
-            .arg(linux_dir)
+            .arg(&linux_dir)
             .arg("--exec")
             .arg("/bin/bash")
             .arg("-l")
-            .arg("-c")
-            .arg(&claude_cmd)
-            .env("POIETAI_SYS", &config.system_prompt)
-            .env("POIETAI_PROMPT", &config.prompt)
-            .env("WSLENV", "POIETAI_SYS:POIETAI_PROMPT");
-        c
+            .arg(&script_linux_path);
+
+        (c, Some(script_win_path))
     };
 
-    // On Linux/macOS, run claude directly with separate args.
+    // On Linux/macOS, run claude directly with separate args — no shell involved.
     #[cfg(not(target_os = "windows"))]
-    let mut cmd = {
+    let (mut cmd, temp_script) = {
         let mut c = Command::new("claude");
         c.arg("--print")
             .arg("--output-format")
@@ -156,7 +185,7 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
             c.arg("--resume").arg(session_id);
         }
         c.arg(&config.prompt);
-        c
+        (c, None::<PathBuf>)
     };
 
     // On Linux/macOS, set the working directory directly on the process.
@@ -174,8 +203,6 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
     // and avoid a pipe-buffer deadlock if claude emits large error output.
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::inherit());
-
-    info!("[process::run] agent={} ticket={} working_dir={:?}", config.agent_id, config.ticket_id, config.working_dir);
 
     let mut child = cmd.spawn().context("failed to spawn claude process")?;
     info!("[process::run] claude spawned pid={:?}", child.id());
@@ -225,7 +252,15 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
         .await
         .context("failed to wait for claude process")?;
 
-    info!("[process::run] claude exited status={} agent={} ticket={}", status, config.agent_id, config.ticket_id);
+    info!(
+        "[process::run] claude exited status={} agent={} ticket={}",
+        status, config.agent_id, config.ticket_id
+    );
+
+    // Clean up the temp script file (Windows only; None on other platforms)
+    if let Some(ref path) = temp_script {
+        let _ = std::fs::remove_file(path);
+    }
 
     // Emit the completion event regardless of exit status
     // React uses this to show the ask-user overlay if needed
@@ -247,6 +282,8 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn allowed_tools_join_format() {
         let tools = vec![
@@ -271,6 +308,27 @@ mod tests {
         assert_eq!(super::sh_quote("hello world"), "'hello world'");
         assert_eq!(super::sh_quote("Bash(git:*)"), "'Bash(git:*)'");
         assert_eq!(super::sh_quote("it's fine"), r"'it'\''s fine'");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn sh_quote_double_quotes() {
+        // system prompt contains: gh pr create --title "..." --body "..."
+        let s = r#"gh pr create --title "fix" --body "details""#;
+        let quoted = super::sh_quote(s);
+        assert!(quoted.starts_with('\''));
+        assert!(quoted.ends_with('\''));
+        assert!(quoted.contains("--title"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wsl_distro_root_localhost() {
+        let path = PathBuf::from(r"\\wsl.localhost\Ubuntu\home\keenan\repo");
+        assert_eq!(
+            super::wsl_distro_root(&path),
+            Some(r"\\wsl.localhost\Ubuntu".to_string())
+        );
     }
 
     #[cfg(target_os = "windows")]
