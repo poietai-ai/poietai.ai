@@ -17,6 +17,7 @@ export function StepConnectGitHub({ onNext, onSkip }: Props) {
   const { saveToken } = useSecretsStore();
   const [token, setToken] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>({ state: 'idle' });
   const [showInstructions, setShowInstructions] = useState(false);
 
@@ -41,13 +42,14 @@ export function StepConnectGitHub({ onNext, onSkip }: Props) {
 
   const handleSave = async () => {
     if (!token.trim()) return;
+    setSaveError(null);
     setSaving(true);
     try {
       await saveToken(token.trim());
       onNext();
     } catch (e) {
-      // saveToken uses plaintext fallback — this should not throw
       console.error('token save failed:', e);
+      setSaveError('Failed to save token. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -121,6 +123,9 @@ export function StepConnectGitHub({ onNext, onSkip }: Props) {
         <p className="text-red-400 text-xs mb-3">{connection.message}</p>
       )}
 
+      {saveError && (
+        <p className="text-red-400 text-xs mb-2">{saveError}</p>
+      )}
       <div className="flex gap-2 justify-between mt-4">
         <button onClick={onSkip} className="text-sm text-neutral-500 hover:text-neutral-300">
           Skip for now

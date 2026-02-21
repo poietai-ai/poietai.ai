@@ -50,9 +50,14 @@ export function OnboardingWizard({ onComplete }: Props) {
           <div className="text-neutral-500 text-sm">Step 2 coming in Task 7</div>
         )}
         {step === 3 && (
-          <div className="text-neutral-500 text-sm">
-            Step 3 coming in Task 8
-            <button onClick={onComplete} className="hidden" aria-hidden="true" />
+          <div className="flex flex-col items-center gap-4">
+            <p className="text-neutral-500 text-sm">Step 3 coming in Task 8</p>
+            <button
+              onClick={onComplete}
+              className="text-xs text-neutral-600 hover:text-neutral-400"
+            >
+              Skip (dev only)
+            </button>
           </div>
         )}
       </div>
