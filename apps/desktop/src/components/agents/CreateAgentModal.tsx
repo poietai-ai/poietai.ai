@@ -27,7 +27,7 @@ export function CreateAgentModal({ onClose }: Props) {
   const [personality, setPersonality] = useState<string>(PERSONALITIES[0]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { refresh } = useAgentStore();
+  const { refresh, persistAgents } = useAgentStore();
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -36,6 +36,7 @@ export function CreateAgentModal({ onClose }: Props) {
       const id = crypto.randomUUID();
       await invoke('create_agent', { id, name: name.trim(), role, personality });
       await refresh();
+      await persistAgents();
       onClose();
     } catch (e) {
       console.error('failed to create agent:', e);

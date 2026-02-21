@@ -5,16 +5,16 @@ import { useSecretsStore } from './store/secretsStore';
 import { useSettingsStore } from './store/settingsStore';
 
 function App() {
-  const { startPolling, stopPolling } = useAgentStore();
+  const { startPolling, stopPolling, restoreAgents } = useAgentStore();
   const { loadToken } = useSecretsStore();
   const { loadSettings } = useSettingsStore();
 
   useEffect(() => {
-    startPolling();
+    restoreAgents().then(() => startPolling());
     loadToken();
     loadSettings();
     return () => stopPolling();
-  }, [startPolling, stopPolling, loadToken, loadSettings]);
+  }, [startPolling, stopPolling, loadToken, loadSettings, restoreAgents]);
 
   return <AppShell />;
 }

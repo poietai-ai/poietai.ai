@@ -79,9 +79,24 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
     let mut cmd = {
         let linux_dir = wsl_to_linux_path(&config.working_dir);
         let mut c = Command::new("wsl");
-        // --exec bypasses the WSL shell (zsh/bash) so parentheses and
-        // wildcards in tool names like Bash(git:*) aren't misinterpreted.
-        c.arg("--cd").arg(linux_dir).arg("--exec").arg("claude");
+        // --exec /bin/bash -l -c 'exec claude "$@"' --
+        //
+        // --exec: bypass the WSL login shell so wsl.exe doesn't concatenate
+        //   our args into a single shell string (which caused zsh to interpret
+        //   Bash(git:*) as a glob and error "number expected").
+        // -l: login shell so ~/.profile / nvm are sourced and `claude` is on PATH.
+        // 'exec claude "$@"': "$@" expands each positional arg as a separate
+        //   word — parentheses and wildcards are never re-interpreted.
+        // -- : everything after is positional args ($0, $1, …); the claude
+        //   args we append below become $1, $2, … and land in "$@".
+        c.arg("--cd")
+            .arg(linux_dir)
+            .arg("--exec")
+            .arg("/bin/bash")
+            .arg("-l")
+            .arg("-c")
+            .arg(r#"exec claude "$@""#)
+            .arg("--");
         c
     };
     #[cfg(not(target_os = "windows"))]

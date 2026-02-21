@@ -28,7 +28,7 @@ export function StepCreateAgent({ onComplete, onSkip }: Props) {
   const [personality, setPersonality] = useState<string>(PERSONALITIES[0].value);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { refresh } = useAgentStore();
+  const { refresh, persistAgents } = useAgentStore();
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -42,6 +42,7 @@ export function StepCreateAgent({ onComplete, onSkip }: Props) {
         personality,
       });
       await refresh();
+      await persistAgents();
       onComplete();
     } catch (e) {
       console.error('failed to create agent:', e);
