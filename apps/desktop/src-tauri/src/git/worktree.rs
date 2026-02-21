@@ -47,7 +47,18 @@ pub fn create(config: &WorktreeConfig) -> Result<Worktree> {
     let branch = Worktree::branch_for(&config.ticket_slug);
     let path = Worktree::path_for(&config.repo_root, &config.ticket_id);
 
-    // Prune stale worktree entries so git doesn't reject the path as already registered.
+    // If the path already exists, remove the old worktree so the branch
+    // is no longer "checked out" — git refuses to add a worktree whose
+    // branch is live in another worktree, even with -B.
+    if path.exists() {
+        let _ = Command::new("git")
+            .args(["worktree", "remove", "--force"])
+            .arg(&path)
+            .current_dir(&config.repo_root)
+            .output();
+    }
+
+    // Prune any stale entries left in .git/worktrees/.
     let _ = Command::new("git")
         .args(["worktree", "prune"])
         .current_dir(&config.repo_root)
