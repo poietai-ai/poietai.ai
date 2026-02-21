@@ -5,7 +5,6 @@ interface AskUserOverlayProps {
   question: string;
   sessionId: string;
   agentId: string;
-  ticketId: string;
   onDismiss: () => void;
 }
 

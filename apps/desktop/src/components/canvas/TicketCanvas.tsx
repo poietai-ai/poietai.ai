@@ -84,7 +84,6 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
           question={awaitingQuestion}
           sessionId={awaitingSessionId}
           agentId={agentId}
-          ticketId={ticketId}
           onDismiss={clearAwaiting}
         />
       )}
