@@ -47,11 +47,20 @@ async function getInstallKey(): Promise<string> {
   return key;
 }
 
+function timeout(ms: number): Promise<never> {
+  return new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`Stronghold timed out after ${ms}ms`)), ms)
+  );
+}
+
 async function openVault() {
   const dir = await appDataDir();
   const vaultPath = await join(dir, 'vault.hold');
   const password = await getInstallKey();
-  const stronghold = await Stronghold.load(vaultPath, password);
+  const stronghold = await Promise.race([
+    Stronghold.load(vaultPath, password),
+    timeout(3000),
+  ]);
 
   let client;
   try {
