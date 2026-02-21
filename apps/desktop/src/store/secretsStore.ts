@@ -4,8 +4,34 @@ import { Stronghold } from '@tauri-apps/plugin-stronghold';
 import { appDataDir, join } from '@tauri-apps/api/path';
 import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs';
 
+export type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'azure';
+
 const CLIENT_NAME = 'poietai';
-const TOKEN_KEY = 'gh_token';
+
+function tokenKey(provider: GitProvider): string {
+  return `token:${provider}`;
+}
+
+// Plaintext fallback path — used when Stronghold is unavailable (e.g. WSL2).
+async function getFallbackPath(): Promise<string> {
+  const dir = await appDataDir();
+  return join(dir, 'tokens.json');
+}
+
+async function readFallbackTokens(): Promise<Partial<Record<GitProvider, string>>> {
+  const path = await getFallbackPath();
+  if (!(await exists(path))) return {};
+  try {
+    return JSON.parse(await readTextFile(path));
+  } catch {
+    return {};
+  }
+}
+
+async function writeFallbackTokens(tokens: Partial<Record<GitProvider, string>>): Promise<void> {
+  const path = await getFallbackPath();
+  await writeTextFile(path, JSON.stringify(tokens, null, 2));
+}
 
 async function getInstallKey(): Promise<string> {
   const dir = await appDataDir();
@@ -24,7 +50,6 @@ async function openVault() {
   const password = await getInstallKey();
   const stronghold = await Stronghold.load(vaultPath, password);
 
-  // loadClient throws if the client doesn't exist yet (fresh install).
   let client;
   try {
     client = await stronghold.loadClient(CLIENT_NAME);
@@ -37,10 +62,10 @@ async function openVault() {
 }
 
 interface SecretsStore {
-  ghToken: string | null;
+  ghToken: string | null;   // convenience alias for tokens['github']
   loaded: boolean;
   isLoading: boolean;
-  error: string | null;
+  usingFallback: boolean;   // true when Stronghold is unavailable
 
   loadToken: () => Promise<void>;
   saveToken: (token: string) => Promise<void>;
@@ -50,43 +75,74 @@ export const useSecretsStore = create<SecretsStore>((set, get) => ({
   ghToken: null,
   loaded: false,
   isLoading: false,
-  error: null,
+  usingFallback: false,
 
   loadToken: async () => {
-    // Guard against concurrent calls (React StrictMode double-invoke).
     if (get().loaded || get().isLoading) return;
     set({ isLoading: true });
+
+    // Try Stronghold first
     try {
       const { client } = await openVault();
       const store = client.getStore();
-      const raw = await store.get(TOKEN_KEY);
+
+      // Try new provider-keyed key first, then migrate from old gh_token key
+      let raw = await store.get(tokenKey('github'));
+      if (!raw) {
+        raw = await store.get('gh_token'); // legacy migration
+        if (raw) {
+          // Migrate to new key
+          const encoded = Array.from(new TextEncoder().encode(
+            new TextDecoder().decode(raw)
+          ));
+          try { await store.remove('gh_token'); } catch { /* ignore */ }
+          await store.insert(tokenKey('github'), encoded);
+          const { stronghold } = await openVault();
+          await stronghold.save();
+        }
+      }
+
       if (raw) {
         const token = new TextDecoder().decode(raw);
         set({ ghToken: token, loaded: true, isLoading: false });
       } else {
         set({ loaded: true, isLoading: false });
       }
+      return;
     } catch (e) {
-      console.warn('Stronghold unavailable — GH token not loaded:', e);
-      set({ loaded: true, isLoading: false });
+      console.warn('Stronghold unavailable — trying plaintext fallback:', e);
+    }
+
+    // Plaintext fallback
+    try {
+      const tokens = await readFallbackTokens();
+      const token = tokens['github'] ?? null;
+      set({ ghToken: token, loaded: true, isLoading: false, usingFallback: true });
+    } catch (e) {
+      console.warn('Plaintext fallback also failed:', e);
+      set({ loaded: true, isLoading: false, usingFallback: true });
     }
   },
 
   saveToken: async (token: string) => {
+    // Try Stronghold first
     try {
       const { stronghold, client } = await openVault();
       const store = client.getStore();
       const encoded = Array.from(new TextEncoder().encode(token));
-      // Remove the existing key before inserting to avoid duplicate-key errors.
-      try { await store.remove(TOKEN_KEY); } catch { /* key may not exist yet */ }
-      await store.insert(TOKEN_KEY, encoded);
+      try { await store.remove(tokenKey('github')); } catch { /* may not exist */ }
+      await store.insert(tokenKey('github'), encoded);
       await stronghold.save();
-      set({ ghToken: token, error: null });
+      set({ ghToken: token, usingFallback: false });
+      return;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error('Failed to save GH token:', e);
-      set({ error: msg });
-      throw e;
+      console.warn('Stronghold save failed — using plaintext fallback:', e);
     }
+
+    // Plaintext fallback
+    const tokens = await readFallbackTokens();
+    tokens['github'] = token;
+    await writeFallbackTokens(tokens);
+    set({ ghToken: token, usingFallback: true });
   },
 }));
