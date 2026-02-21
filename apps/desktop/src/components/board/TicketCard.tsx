@@ -59,6 +59,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
           ticket_slug: ticket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
           prompt: `${ticket.title}\n\n${ticket.description}`,
           system_prompt: systemPrompt,
+          // TODO(Task 9): use selected repo from AgentPickerModal instead of first repo
           repo_root: project.repos[0]?.repoRoot ?? '',
           gh_token: ghToken,
           resume_session_id: null,

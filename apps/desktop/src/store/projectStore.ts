@@ -21,6 +21,7 @@ interface ProjectStore {
   projects: Project[];
   activeProjectId: string | null;
   loaded: boolean;
+  isLoading: boolean;
 
   loadFromDisk: () => Promise<void>;
   addProject: (project: Project) => Promise<void>;
@@ -53,14 +54,25 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   projects: [],
   activeProjectId: null,
   loaded: false,
+  isLoading: false,
 
   loadFromDisk: async () => {
-    if (get().loaded) return;
+    if (get().loaded || get().isLoading) return;
+    set({ isLoading: true });
     const store = await getStore();
     const raw = (await store.get<Record<string, unknown>[]>('projects')) ?? [];
+
+    // Migrate any legacy projects (repoRoot string → repos array)
+    const needsMigration = raw.some((r) => !Array.isArray(r.repos));
     const projects = raw.map(migrateProject);
+
+    // Write back migrated data so Repo.id values are stable across sessions
+    if (needsMigration) {
+      await store.set('projects', projects);
+    }
+
     const activeProjectId = (await store.get<string>('activeProjectId')) ?? null;
-    set({ projects, activeProjectId, loaded: true });
+    set({ projects, activeProjectId, loaded: true, isLoading: false });
   },
 
   addProject: async (project) => {
