@@ -145,6 +145,7 @@ async fn start_agent(
         working_dir: worktree.path.clone(),
         env,
         resume_session_id: payload.resume_session_id,
+        mcp_port: state.mcp.port,
     };
 
     let app_clone = app.clone();
@@ -216,6 +217,7 @@ async fn resume_agent(
         // No new git identity: the existing worktree retains the identity set at start_agent time.
         env: vec![],
         resume_session_id: Some(session_id),
+        mcp_port: state.mcp.port,
     };
 
     set_status(&agents_store, &agent_id, AgentStatus::Working);

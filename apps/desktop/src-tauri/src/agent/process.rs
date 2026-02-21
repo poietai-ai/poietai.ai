@@ -41,6 +41,8 @@ pub struct AgentRunConfig {
     pub env: Vec<(String, String)>,
     /// If resuming a paused session, provide the session ID here.
     pub resume_session_id: Option<String>,
+    /// Port of the Tauri MCP server — written to .claude/settings.json before spawn.
+    pub mcp_port: u16,
 }
 
 /// Wrap a string in POSIX single quotes for safe embedding in a shell script.
@@ -100,6 +102,35 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
         "[process::run] agent={} ticket={} working_dir={:?}",
         config.agent_id, config.ticket_id, config.working_dir
     );
+
+    // Write .claude/settings.json so Claude discovers the MCP server
+    {
+        let claude_dir = config.working_dir.join(".claude");
+        tokio::fs::create_dir_all(&claude_dir)
+            .await
+            .with_context(|| format!("failed to create {:?}", claude_dir))?;
+
+        let settings = serde_json::json!({
+            "mcpServers": {
+                "poietai": {
+                    "type": "sse",
+                    "url": format!("http://127.0.0.1:{}/sse", config.mcp_port)
+                }
+            }
+        });
+
+        tokio::fs::write(
+            claude_dir.join("settings.json"),
+            serde_json::to_string_pretty(&settings).unwrap(),
+        )
+        .await
+        .with_context(|| "failed to write .claude/settings.json")?;
+
+        info!(
+            "[process::run] wrote .claude/settings.json for agent={} mcp_port={}",
+            config.agent_id, config.mcp_port
+        );
+    }
 
     // On Windows, claude lives inside WSL2.
     //
