@@ -97,25 +97,35 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
     let mut cmd = {
         let linux_dir = wsl_to_linux_path(&config.working_dir);
 
-        let mut parts: Vec<String> = vec![
-            "exec".to_string(),
-            "claude".to_string(),
-            "--print".to_string(),
-            "--output-format".to_string(),
-            "stream-json".to_string(),
-            "--append-system-prompt".to_string(),
-            sh_quote(&config.system_prompt),
-            "--allowedTools".to_string(),
-            sh_quote(&config.allowed_tools.join(",")),
-        ];
-        if let Some(ref sid) = config.resume_session_id {
-            parts.push("--resume".to_string());
-            parts.push(sh_quote(sid));
-        }
-        parts.push(sh_quote(&config.prompt));
+        // Pass system_prompt and prompt via environment variables (through WSLENV)
+        // rather than embedding them in the shell -c string.
+        //
+        // The -c string would otherwise contain the system prompt verbatim, which
+        // includes double-quotes (e.g. `gh pr create --title "..."`). Those
+        // double-quotes break Windows command-line quoting when Tokio wraps the
+        // entire -c arg in "..." for CreateProcessW.
+        //
+        // With env vars:
+        //   - WSLENV tells WSL to forward POIETAI_SYS and POIETAI_PROMPT to Linux
+        //   - "$POIETAI_SYS" / "$POIETAI_PROMPT" in bash are double-quoted so bash
+        //     expands them verbatim (newlines, single quotes, all preserved; no
+        //     glob or parameter re-interpretation)
+        //   - The -c string itself is a single clean line with no double-quotes
+        let resume_part = config
+            .resume_session_id
+            .as_deref()
+            .map(|sid| format!("--resume {}", sh_quote(sid)))
+            .unwrap_or_default();
 
-        let claude_cmd = parts.join(" ");
-        info!("[process::run] wsl cmd (first 300): {}", &claude_cmd[..claude_cmd.len().min(300)]);
+        let claude_cmd = format!(
+            "exec claude --print --output-format stream-json \
+             --append-system-prompt \"$POIETAI_SYS\" \
+             --allowedTools {} {} \"$POIETAI_PROMPT\"",
+            sh_quote(&config.allowed_tools.join(",")),
+            resume_part,
+        );
+
+        info!("[process::run] wsl cmd: {}", &claude_cmd);
 
         let mut c = Command::new("wsl");
         c.arg("--cd")
@@ -124,7 +134,10 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
             .arg("/bin/bash")
             .arg("-l")
             .arg("-c")
-            .arg(claude_cmd);
+            .arg(&claude_cmd)
+            .env("POIETAI_SYS", &config.system_prompt)
+            .env("POIETAI_PROMPT", &config.prompt)
+            .env("WSLENV", "POIETAI_SYS:POIETAI_PROMPT");
         c
     };
 
