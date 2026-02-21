@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import type { CanvasNode } from '../../../types/canvas';
 
 function BouncingDots() {
@@ -27,34 +28,37 @@ export function ThoughtNode({ data }: NodeProps<CanvasNode>) {
   const isLong = content.length > 160;
 
   return (
-    <div className="bg-indigo-950 border border-indigo-700 rounded-lg p-3 max-w-xs shadow-lg">
-      <Handle type="target" position={Position.Top} className="!bg-indigo-500" />
+    <div className="bg-white border border-zinc-200 border-l-4 border-l-violet-500
+                    rounded-lg p-3 max-w-xs shadow-sm">
+      <Handle type="target" position={Position.Top} className="!bg-violet-400" />
       <div className="flex items-start gap-2">
-        <span className="text-indigo-400 text-sm mt-0.5 flex-shrink-0">💭</span>
+        <Sparkles size={14} strokeWidth={1.5} className="text-violet-500 mt-0.5 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           {!revealed ? (
-            <p className="text-indigo-300 text-xs italic">
+            <p className="text-zinc-400 text-xs italic">
               Thinking<BouncingDots />
             </p>
           ) : (
             <>
-              <p className={`text-indigo-100 text-xs leading-relaxed ${!expanded ? 'line-clamp-3' : ''}`}>
+              <p className={`text-zinc-700 text-xs leading-relaxed ${!expanded ? 'line-clamp-3' : ''}`}>
                 {content}
               </p>
               {isLong && (
                 <button
                   type="button"
                   onClick={() => setExpanded(!expanded)}
-                  className="text-indigo-400 hover:text-indigo-200 text-xs mt-1"
+                  className="flex items-center gap-0.5 text-violet-500 hover:text-violet-600 text-xs mt-1"
                 >
-                  {expanded ? 'show less' : 'show more'}
+                  {expanded
+                    ? <><ChevronUp size={12} /> show less</>
+                    : <><ChevronDown size={12} /> show more</>}
                 </button>
               )}
             </>
           )}
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-indigo-500" />
+      <Handle type="source" position={Position.Bottom} className="!bg-violet-400" />
     </div>
   );
 }
