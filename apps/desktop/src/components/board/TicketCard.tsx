@@ -87,12 +87,12 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
       )}
 
       <div
-        className="bg-neutral-800 border border-neutral-700 rounded-lg p-3
-                   hover:border-neutral-600 transition-colors cursor-pointer group"
+        className="bg-zinc-800 border border-zinc-700 rounded-lg p-3
+                   hover:border-zinc-600 transition-colors cursor-pointer group"
         onClick={() => onOpenCanvas(ticket.id)}
       >
         <div className="flex items-start justify-between gap-2 mb-2">
-          <p className="text-neutral-100 text-sm leading-snug">{ticket.title}</p>
+          <p className="text-zinc-100 text-sm font-medium leading-snug">{ticket.title}</p>
           <span
             className={`text-xs px-1.5 py-0.5 rounded font-mono flex-shrink-0 ${complexityClass(ticket.complexity)}`}
           >
@@ -102,11 +102,11 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
 
         {ticket.assignments.length > 0 ? (
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-indigo-700 text-xs text-white
+            <div className="w-4 h-4 rounded-full bg-violet-700 text-xs text-white
                             flex items-center justify-center">
               A
             </div>
-            <span className="text-neutral-500 text-xs truncate">
+            <span className="text-zinc-500 text-xs truncate">
               {ticket.assignments[0].agentId}
               {ticket.assignments.length > 1 && ` +${ticket.assignments.length - 1}`}
             </span>
@@ -120,7 +120,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
               !ghToken ? 'Add a GitHub token in Settings first' :
               'Assign an agent'
             }
-            className="text-xs text-indigo-400 hover:text-indigo-300 opacity-0
+            className="text-xs text-violet-400 hover:text-violet-300 opacity-0
                        group-hover:opacity-100 transition-opacity
                        disabled:opacity-30 disabled:cursor-not-allowed"
           >
