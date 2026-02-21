@@ -1,5 +1,6 @@
 // apps/desktop/src/components/layout/SettingsPanel.tsx
 import { useState, useEffect, useRef } from 'react';
+import { X, ChevronDown, ChevronRight } from 'lucide-react';
 import { useSecretsStore } from '../../store/secretsStore';
 
 interface Props {
@@ -77,11 +78,11 @@ export function SettingsPanel({ onClose }: Props) {
       aria-labelledby="settings-title"
       className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
     >
-      <div className="bg-neutral-900 border border-neutral-700 rounded-xl p-5 w-[480px] shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-[480px] shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
-          <h2 id="settings-title" className="text-neutral-100 font-semibold">Settings</h2>
+          <h2 id="settings-title" className="text-zinc-100 font-semibold">Settings</h2>
           <button type="button" onClick={onClose} aria-label="Close settings"
-            className="text-neutral-500 hover:text-neutral-300 text-xl leading-none">×</button>
+            className="text-zinc-500 hover:text-zinc-300 transition-colors"><X size={16} /></button>
         </div>
 
         {/* Stronghold fallback warning */}
@@ -97,7 +98,7 @@ export function SettingsPanel({ onClose }: Props) {
         {/* GitHub section */}
         <div className="mb-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-neutral-300 text-sm font-medium">GitHub</h3>
+            <h3 className="text-zinc-300 text-sm font-medium">GitHub</h3>
             {ghToken ? (
               <span className="text-xs px-2 py-0.5 rounded-full bg-green-950 text-green-400">
                 ✓ Connected
@@ -116,15 +117,15 @@ export function SettingsPanel({ onClose }: Props) {
           <button
             type="button"
             onClick={() => setShowInstructions((v) => !v)}
-            className="text-indigo-400 text-xs mb-3 hover:text-indigo-300 flex items-center gap-1"
+            className="text-violet-400 text-xs mb-3 hover:text-violet-300 flex items-center gap-1"
           >
-            {showInstructions ? '▾' : '▸'} How to create a Personal Access Token
+            {showInstructions ? <ChevronDown size={12} className="inline mr-1" /> : <ChevronRight size={12} className="inline mr-1" />} How to create a Personal Access Token
           </button>
 
           {showInstructions && (
-            <ol className="text-neutral-400 text-xs space-y-1 mb-3 pl-4 list-decimal leading-relaxed">
-              <li>Go to <span className="text-neutral-200">github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens</span></li>
-              <li>Click <span className="text-neutral-200">Generate new token</span></li>
+            <ol className="text-zinc-400 text-xs space-y-1 mb-3 pl-4 list-decimal leading-relaxed">
+              <li>Go to <span className="text-zinc-200">github.com → Settings → Developer settings → Personal access tokens → Fine-grained tokens</span></li>
+              <li>Click <span className="text-zinc-200">Generate new token</span></li>
               <li>Set Resource owner to your account or org</li>
               <li>Select the repositories you'll use</li>
               <li>
@@ -132,13 +133,13 @@ export function SettingsPanel({ onClose }: Props) {
                 Issues (R), Workflows (R)
               </li>
               <li>
-                <span className="text-neutral-200">Org repos:</span> set Resource owner to the org —
+                <span className="text-zinc-200">Org repos:</span> set Resource owner to the org —
                 an org owner may need to approve the token
               </li>
             </ol>
           )}
 
-          <label htmlFor="gh-token" className="block text-neutral-400 text-xs mb-1">
+          <label htmlFor="gh-token" className="block text-zinc-400 text-xs mb-1">
             Personal Access Token
           </label>
           <div className="flex gap-2 mb-2">
@@ -149,15 +150,15 @@ export function SettingsPanel({ onClose }: Props) {
               value={draft}
               onChange={(e) => { setDraft(e.target.value); setConnection({ state: 'idle' }); }}
               placeholder="ghp_... or github_pat_..."
-              className="flex-1 bg-neutral-800 border border-neutral-600 rounded-lg px-3 py-2
-                         text-sm text-white placeholder-neutral-500 focus:outline-none
-                         focus:border-indigo-500 font-mono"
+              className="flex-1 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2
+                         text-sm text-white placeholder-zinc-500 focus:outline-none
+                         focus:border-violet-500 font-mono"
             />
             <button
               type="button"
               onClick={handleTest}
               disabled={!draft.trim() || connection.state === 'testing'}
-              className="text-sm bg-neutral-700 hover:bg-neutral-600 disabled:opacity-50
+              className="text-sm bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50
                          text-white px-3 py-2 rounded-lg transition-colors whitespace-nowrap"
             >
               {connection.state === 'testing' ? 'Testing…' : 'Test'}
@@ -174,16 +175,16 @@ export function SettingsPanel({ onClose }: Props) {
           {error && <p className="text-red-400 text-xs mb-2">{error}</p>}
         </div>
 
-        <div className="flex gap-2 justify-end border-t border-neutral-800 pt-4">
+        <div className="flex gap-2 justify-end border-t border-zinc-800 pt-4">
           <button type="button" onClick={onClose}
-            className="text-sm text-neutral-400 hover:text-neutral-200 px-3 py-1.5">
+            className="text-sm text-zinc-400 hover:text-zinc-200 px-3 py-1.5">
             Cancel
           </button>
           <button
             type="button"
             onClick={handleSave}
             disabled={saving || !draft.trim()}
-            className="text-sm bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50
+            className="text-sm bg-violet-600 hover:bg-violet-500 disabled:opacity-50
                        text-white px-4 py-1.5 rounded-lg transition-colors"
           >
             {saved ? 'Saved!' : saving ? 'Saving…' : 'Save'}
