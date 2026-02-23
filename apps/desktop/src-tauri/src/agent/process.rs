@@ -116,7 +116,10 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
                     "type": "sse",
                     "url": format!("http://127.0.0.1:{}/sse", config.mcp_port)
                 }
-            }
+            },
+            // Empty hooks overrides global hooks — prevents the SessionStart:startup
+            // hook from injecting interactive-session skills into headless agent runs.
+            "hooks": {}
         });
 
         tokio::fs::write(
