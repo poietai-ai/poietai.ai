@@ -1,9 +1,6 @@
-export interface ValidateLine {
-  type: 'verified' | 'mismatch';
-  summary: string;
-  location?: string;
-  severity?: 'critical' | 'advisory';
-}
+export type ValidateLine =
+  | { type: 'verified'; summary: string; location?: string }
+  | { type: 'mismatch'; summary: string; severity: 'critical' | 'advisory' };
 
 export interface ValidateResult {
   verified: number;
@@ -15,24 +12,37 @@ export interface ValidateResult {
 export function parseValidateResult(text: string): ValidateResult {
   const lines: ValidateLine[] = [];
 
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
+  for (const rawLine of text.split('\n')) {
+    const trimmed = rawLine.trim();
 
     if (trimmed.startsWith('VERIFIED |')) {
       const parts = trimmed.split('|').map((p) => p.trim());
-      lines.push({ type: 'verified', summary: parts[1] ?? '', location: parts[2] });
+      // parts[0] = 'VERIFIED', parts[1] = summary, parts[2] = location (optional)
+      const summary = parts[1] ?? '';
+      const location = parts[2];
+      lines.push({ type: 'verified', summary, location });
     } else if (trimmed.startsWith('MISMATCH |')) {
       const parts = trimmed.split('|').map((p) => p.trim());
-      const lastPart = parts[parts.length - 1].toLowerCase();
-      const severity: 'critical' | 'advisory' = lastPart === 'critical' ? 'critical' : 'advisory';
-      lines.push({ type: 'mismatch', summary: parts[1] ?? '', severity });
+      // Expected format: MISMATCH | summary | Expected: ... | Found: ... | CRITICAL|ADVISORY
+      // Minimum 2 parts (MISMATCH + summary). Severity is the last part IF it is exactly
+      // 'CRITICAL' or 'ADVISORY' AND there are at least 3 parts (so it's not the summary).
+      const summary = parts[1] ?? '';
+      const lastPart = parts[parts.length - 1].toUpperCase();
+      const hasSeveritySlot = parts.length >= 3;
+      const severity: 'critical' | 'advisory' =
+        hasSeveritySlot && lastPart === 'CRITICAL' ? 'critical' : 'advisory';
+      lines.push({ type: 'mismatch', summary, severity });
     }
   }
 
-  return {
-    verified: lines.filter((l) => l.type === 'verified').length,
-    critical: lines.filter((l) => l.type === 'mismatch' && l.severity === 'critical').length,
-    advisory: lines.filter((l) => l.type === 'mismatch' && l.severity === 'advisory').length,
-    lines,
-  };
+  let verified = 0;
+  let critical = 0;
+  let advisory = 0;
+  for (const line of lines) {
+    if (line.type === 'verified') verified++;
+    else if (line.severity === 'critical') critical++;
+    else advisory++;
+  }
+
+  return { verified, critical, advisory, lines };
 }
