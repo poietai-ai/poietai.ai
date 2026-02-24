@@ -67,6 +67,19 @@ function itemLabelFromEvent(event: AgentEventKind): string {
   return JSON.stringify(event.tool_input).slice(0, 80);
 }
 
+function textFromToolResult(content: unknown): string | undefined {
+  if (typeof content === 'string') return content || undefined;
+  if (Array.isArray(content)) {
+    const texts = content
+      .filter((c): c is { type: string; text: string } =>
+        typeof c === 'object' && c !== null && (c as Record<string, unknown>)['type'] === 'text'
+      )
+      .map((c) => c.text);
+    return texts.join('\n') || undefined;
+  }
+  return undefined;
+}
+
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
   nodes: [],
   edges: [],
@@ -81,6 +94,23 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   addNodeFromEvent: (payload) => {
     const { nodes, edges, activeTicketId } = get();
     if (payload.ticket_id !== activeTicketId) return;
+
+    // Handle tool_result — patch fileContent onto matching file_read node
+    if (payload.event.type === 'tool_result') {
+      const { tool_use_id, content } = payload.event;
+      const text = textFromToolResult(content);
+      if (!text) return;
+      const targetIndex = nodes.findIndex(
+        (n) => n.id === tool_use_id && n.data.nodeType === 'file_read'
+      );
+      if (targetIndex === -1) return;
+      const updated = {
+        ...nodes[targetIndex],
+        data: { ...nodes[targetIndex].data, fileContent: text },
+      };
+      set({ nodes: [...nodes.slice(0, targetIndex), updated, ...nodes.slice(targetIndex + 1)] });
+      return;
+    }
 
     const nodeType = nodeTypeFromEvent(payload.event);
     if (!nodeType) return;
