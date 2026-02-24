@@ -40,6 +40,11 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
     const repo = project.repos.find((r) => r.id === repoId) ?? project.repos[0];
     if (!repo) return;
 
+    const planContent =
+      ticket.activePhase === 'build' && ticket.artifacts.plan
+        ? ticket.artifacts.plan.content
+        : undefined;
+
     const systemPrompt = buildPrompt({
       agentId: agent.id,
       role: agent.role,
@@ -51,6 +56,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
       ticketTitle: ticket.title,
       ticketDescription: ticket.description,
       ticketAcceptanceCriteria: ticket.acceptanceCriteria,
+      planContent,
     });
 
     const ghToken = useSecretsStore.getState().ghToken ?? '';
