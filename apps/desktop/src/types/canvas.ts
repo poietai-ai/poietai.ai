@@ -11,10 +11,11 @@ export type AgentEventKind =
   | { type: 'result'; result?: string; session_id?: string };
 
 export interface CanvasNodePayload {
-  node_id: string;
+  /** Optional explicit node id; derived from kind.id for tool_use, or auto-generated. */
+  node_id?: string;
   agent_id: string;
   ticket_id: string;
-  event: AgentEventKind;
+  kind: AgentEventKind;
 }
 
 // Visual node types rendered by @xyflow/react
