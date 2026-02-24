@@ -38,6 +38,7 @@ export interface CanvasNodeData extends Record<string, unknown> {
   filePath?: string;
   /** Labels for grouped tool nodes (multiple consecutive calls of the same type). */
   items?: string[];
+  fileContent?: string;
   diff?: string;
   sessionId?: string;
   approved?: boolean;
