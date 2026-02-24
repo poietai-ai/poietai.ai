@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { FileText, FilePen, FilePlus2, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileText, FilePen, FilePlus2, ChevronDown, ChevronUp, Code } from 'lucide-react';
 import type { CanvasNode } from '../../../types/canvas';
 
 const NODE_STYLES = {
@@ -9,17 +9,18 @@ const NODE_STYLES = {
   file_write: { Icon: FilePlus2, bar: 'border-l-emerald-500', iconCls: 'text-emerald-600', verb: 'Wrote'  },
 } as const;
 
-/** Show the last 2 path segments: `/home/.../src/cart.ts` → `src/cart.ts`. */
 function shortPath(p: string) {
   const parts = p.replace(/\\/g, '/').split('/').filter(Boolean);
   return parts.length > 2 ? parts.slice(-2).join('/') : p;
 }
 
 export function FileNode({ data }: NodeProps<CanvasNode>) {
-  const [expanded, setExpanded] = useState(false);
+  const [listExpanded, setListExpanded] = useState(false);
+  const [contentExpanded, setContentExpanded] = useState(false);
   const style = NODE_STYLES[data.nodeType as keyof typeof NODE_STYLES] ?? NODE_STYLES.file_read;
   const items = (data.items as string[] | undefined) ?? (data.filePath ? [data.filePath] : []);
   const count = items.length;
+  const fileContent = data.fileContent as string | undefined;
   const { Icon } = style;
 
   return (
@@ -27,9 +28,10 @@ export function FileNode({ data }: NodeProps<CanvasNode>) {
                      rounded-lg p-3 min-w-48 max-w-xs shadow-sm`}>
       <Handle type="target" position={Position.Left} />
 
+      {/* Header row */}
       <button
         type="button"
-        onClick={() => count > 1 && setExpanded(!expanded)}
+        onClick={() => count > 1 && setListExpanded(!listExpanded)}
         className="flex items-center gap-2 w-full text-left"
       >
         <Icon size={14} strokeWidth={1.5} className={`${style.iconCls} flex-shrink-0`} />
@@ -41,12 +43,13 @@ export function FileNode({ data }: NodeProps<CanvasNode>) {
         </span>
         {count > 1 && (
           <span className="text-zinc-400 flex-shrink-0">
-            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            {listExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </span>
         )}
       </button>
 
-      {expanded && (
+      {/* Multi-file list */}
+      {listExpanded && (
         <ul className="mt-2 space-y-1 max-h-36 overflow-y-auto border-t border-zinc-100 pt-2">
           {items.map((item, i) => (
             <li key={i} className="text-zinc-500 text-xs font-mono truncate">
@@ -54,6 +57,28 @@ export function FileNode({ data }: NodeProps<CanvasNode>) {
             </li>
           ))}
         </ul>
+      )}
+
+      {/* File content toggle — only for file_read when content is available */}
+      {data.nodeType === 'file_read' && fileContent && (
+        <>
+          <button
+            type="button"
+            onClick={() => setContentExpanded(!contentExpanded)}
+            className="flex items-center gap-0.5 text-blue-500 hover:text-blue-600 text-xs mt-2"
+          >
+            <Code size={11} />
+            <span className="ml-1">{contentExpanded ? 'hide content' : 'view content'}</span>
+            {contentExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+          </button>
+          {contentExpanded && (
+            <pre className="mt-2 text-zinc-600 text-xs font-mono leading-relaxed
+                            max-h-72 overflow-y-auto bg-zinc-50 border border-zinc-100
+                            rounded p-2 whitespace-pre-wrap break-all">
+              {fileContent}
+            </pre>
+          )}
+        </>
       )}
 
       <Handle type="source" position={Position.Right} />
