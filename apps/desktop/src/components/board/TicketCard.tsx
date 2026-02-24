@@ -7,6 +7,7 @@ import { useProjectStore } from '../../store/projectStore';
 import { useSecretsStore } from '../../store/secretsStore';
 import { AgentPickerModal } from '../agents/AgentPickerModal';
 import { buildPrompt } from '../../lib/promptBuilder';
+import { parsePlanArtifact } from '../../lib/parsePlanArtifact';
 import type { Agent } from '../../store/agentStore';
 
 interface TicketCardProps {
@@ -79,6 +80,13 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
       assignTicket(ticket.id, { agentId: agent.id, repoId });
       updateTicketStatus(ticket.id, 'in_progress');
       setActiveTicket(ticket.id);
+      // Seed ghost graph when entering BUILD phase with a plan artifact
+      if (ticket.activePhase === 'build' && ticket.artifacts.plan) {
+        const planArtifact = parsePlanArtifact(ticket.artifacts.plan.content);
+        if (planArtifact) {
+          useCanvasStore.getState().initGhostGraph(planArtifact);
+        }
+      }
       onOpenCanvas(ticket.id);
     } catch (err) {
       console.error('failed to start agent:', err);
