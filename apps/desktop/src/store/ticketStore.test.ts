@@ -86,3 +86,16 @@ describe('setPhaseArtifact', () => {
     expect(t.artifacts.design?.content).toBe('design content');
   });
 });
+
+describe('blockTicket', () => {
+  it('sets ticket status to blocked', () => {
+    useTicketStore.getState().addTicket({ title: 'T', description: '', complexity: 2, acceptanceCriteria: [] });
+    const id = useTicketStore.getState().tickets[0].id;
+    useTicketStore.getState().blockTicket(id);
+    expect(useTicketStore.getState().tickets[0].status).toBe('blocked');
+  });
+
+  it('does nothing for nonexistent ticket id', () => {
+    expect(() => useTicketStore.getState().blockTicket('nope')).not.toThrow();
+  });
+});
