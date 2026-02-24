@@ -154,6 +154,34 @@ describe('initGhostGraph', () => {
   });
 });
 
+describe('addValidateResultNode', () => {
+  it('adds a validate_result node at the correct position', () => {
+    useCanvasStore.getState().addNodeFromEvent(thoughtEvent('n1'));
+    useCanvasStore.getState().addValidateResultNode({ verified: 3, critical: 0, advisory: 1 });
+    const { nodes } = useCanvasStore.getState();
+    const validateNode = nodes.find((n) => n.type === 'validate_result');
+    expect(validateNode).toBeDefined();
+    expect(validateNode?.position.y).toBe(80);
+    expect(validateNode?.position.x).toBe(340); // one execution node before it
+    expect(validateNode?.data.validateSummary).toEqual({ verified: 3, critical: 0, advisory: 1 });
+  });
+
+  it('connects validate_result node to the previous node with an edge', () => {
+    useCanvasStore.getState().addNodeFromEvent(thoughtEvent('n1'));
+    useCanvasStore.getState().addValidateResultNode({ verified: 1, critical: 1, advisory: 0 });
+    const { edges } = useCanvasStore.getState();
+    expect(edges.some((e) => e.target.startsWith('validate-result-'))).toBe(true);
+  });
+
+  it('works when canvas is empty (no previous node)', () => {
+    useCanvasStore.getState().addValidateResultNode({ verified: 0, critical: 0, advisory: 0 });
+    const { nodes, edges } = useCanvasStore.getState();
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].type).toBe('validate_result');
+    expect(edges).toHaveLength(0);
+  });
+});
+
 describe('ghost node activation on file edit', () => {
   it('activates a ghost node when a matching file is edited', () => {
     const plan = makePlan([{ id: 'T1', file: 'src/foo.ts' }]);
