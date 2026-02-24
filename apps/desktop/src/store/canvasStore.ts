@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Node, Edge } from '@xyflow/react';
+import { applyNodeChanges, type NodeChange } from '@xyflow/react';
 import type { CanvasNodeData, CanvasNodePayload, CanvasNodeType, AgentEventKind } from '../types/canvas';
 
 interface CanvasStore {
@@ -11,13 +12,14 @@ interface CanvasStore {
 
   setActiveTicket: (ticketId: string) => void;
   addNodeFromEvent: (payload: CanvasNodePayload) => void;
+  onNodesChange: (changes: NodeChange[]) => void;
   setAwaiting: (question: string, sessionId: string) => void;
   clearAwaiting: () => void;
   clearCanvas: () => void;
 }
 
-// Vertical gap between canvas nodes in pixels.
-const NODE_VERTICAL_SPACING = 130;
+// Horizontal gap between canvas nodes in pixels.
+const NODE_HORIZONTAL_SPACING = 340;
 
 // These node types are merged when consecutive: e.g. 10 Reads in a row → one "Read 10 files" node.
 const GROUPABLE: CanvasNodeType[] = ['file_read', 'bash_command', 'file_edit', 'file_write'];
@@ -101,13 +103,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       }
     }
 
-    const yPosition = nodes.length * NODE_VERTICAL_SPACING;
+    const xPosition = nodes.length * NODE_HORIZONTAL_SPACING;
     const items = GROUPABLE.includes(nodeType) ? [label] : undefined;
 
     const newNode: Node<CanvasNodeData> = {
       id: payload.node_id,
       type: nodeType,
-      position: { x: 300, y: yPosition },
+      position: { x: xPosition, y: 80 },
       data: {
         nodeType,
         agentId: payload.agent_id,
@@ -139,6 +141,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   clearAwaiting: () => {
     set({ awaitingQuestion: null, awaitingSessionId: null });
+  },
+
+  onNodesChange: (changes) => {
+    set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) }));
   },
 
   clearCanvas: () => {
