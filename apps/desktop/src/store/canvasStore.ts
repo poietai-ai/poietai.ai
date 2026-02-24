@@ -158,7 +158,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         source: prevNode.id,
         target: payload.node_id,
         type: 'smoothstep',
-        style: { stroke: '#ffffff40', strokeWidth: 2 },
+        style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
       });
     }
 
