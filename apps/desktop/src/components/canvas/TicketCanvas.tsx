@@ -94,9 +94,9 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
       >
         <Background
           variant={BackgroundVariant.Dots}
-          gap={24}
-          size={1}
-          color="#d4d4d8"
+          gap={28}
+          size={2}
+          color="#a1a1aa"
         />
         <Controls />
       </ReactFlow>
