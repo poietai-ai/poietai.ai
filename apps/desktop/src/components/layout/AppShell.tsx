@@ -19,11 +19,11 @@ export function AppShell() {
 
   // Show a toast whenever an agent sends a text message
   const handleAgentEvent = useCallback((payload: CanvasNodePayload) => {
-    if (payload.event.type !== 'text') return;
-    const text = payload.event.text;
+    if (payload.kind.type !== 'text') return;
+    const text = payload.kind.text;
     const agent = useAgentStore.getState().agents.find((a) => a.id === payload.agent_id);
     const agentName = agent?.name ?? payload.agent_id;
-    const preview = text.split('\n').find((l) => l.trim()) ?? text;
+    const preview = text.split('\n').find((l: string) => l.trim()) ?? text;
 
     showToast({
       id: payload.agent_id,

@@ -47,18 +47,40 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
     return () => { unlisten.then((fn) => fn()); };
   }, [addNodeFromEvent]);
 
-  // Listen for agent run completion — show ask-user overlay if agent ended with a question
+  // Listen for agent run completion — capture artifact, advance phase, then check for awaiting question
   useEffect(() => {
     const unlisten = listen<AgentResultPayload>('agent-result', (event) => {
-      const { session_id } = event.payload;
-      if (!session_id) return;
+      const { agent_id, ticket_id, session_id } = event.payload;
 
-      // Check if the last text node in the canvas ended with a question mark
+      // --- Phase lifecycle: capture artifact + advance phase ---
+      const ticket = useTicketStore.getState().tickets.find((t) => t.id === ticket_id);
+      if (ticket?.activePhase && ticket.activePhase !== 'ship') {
+        const currentNodes = useCanvasStore.getState().nodes;
+        const lastTextNode = [...currentNodes]
+          .reverse()
+          .find((n) => n.data.nodeType === 'agent_message');
+
+        if (lastTextNode) {
+          const content = String(lastTextNode.data.content);
+          useTicketStore.getState().setPhaseArtifact(ticket_id, {
+            phase: ticket.activePhase,
+            content,
+            createdAt: new Date().toISOString(),
+            agentId: agent_id,
+          });
+        }
+
+        // Advance to the next phase
+        useTicketStore.getState().advanceTicketPhase(ticket_id);
+      }
+      // --- End phase lifecycle ---
+
+      // Existing: check for end-of-session question (awaiting resume)
+      if (!session_id) return;
       const currentNodes = useCanvasStore.getState().nodes;
       const lastTextNode = [...currentNodes]
         .reverse()
         .find((n) => n.data.nodeType === 'agent_message');
-
       if (lastTextNode && String(lastTextNode.data.content).trim().endsWith('?')) {
         setAwaiting(String(lastTextNode.data.content), session_id);
       }

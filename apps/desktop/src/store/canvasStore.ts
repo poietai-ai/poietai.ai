@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Node, Edge } from '@xyflow/react';
 import { applyNodeChanges, type NodeChange } from '@xyflow/react';
 import type { CanvasNodeData, CanvasNodePayload, CanvasNodeType, AgentEventKind } from '../types/canvas';
+import type { PlanArtifact } from '../types/planArtifact';
 
 interface CanvasStore {
   nodes: Node<CanvasNodeData>[];
@@ -12,6 +13,7 @@ interface CanvasStore {
 
   setActiveTicket: (ticketId: string) => void;
   addNodeFromEvent: (payload: CanvasNodePayload) => void;
+  initGhostGraph: (planArtifact: PlanArtifact) => void;
   onNodesChange: (changes: NodeChange[]) => void;
   setAwaiting: (question: string, sessionId: string) => void;
   clearAwaiting: () => void;
@@ -80,6 +82,14 @@ function textFromToolResult(content: unknown): string | undefined {
   return undefined;
 }
 
+/** Derive a stable node id from the payload. */
+function nodeIdFromPayload(payload: CanvasNodePayload): string {
+  if (payload.node_id) return payload.node_id;
+  if (payload.kind.type === 'tool_use') return payload.kind.id;
+  // Fallback: timestamp-based id
+  return `${payload.agent_id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
   nodes: [],
   edges: [],
@@ -91,13 +101,35 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     set({ activeTicketId: ticketId, nodes: [], edges: [] });
   },
 
+  initGhostGraph: (planArtifact) => set((state) => {
+    const allTasks = planArtifact.taskGroups.flatMap((g) => g.tasks);
+    const ghostNodes: Node<CanvasNodeData>[] = allTasks.map((task, idx) => ({
+      id: `ghost-${task.id}`,
+      type: 'plan_task' as CanvasNodeType,
+      position: { x: idx * 240, y: -180 },
+      data: {
+        nodeType: 'plan_task' as CanvasNodeType,
+        agentId: '',
+        ticketId: state.activeTicketId ?? '',
+        content: task.description,
+        filePath: task.file,
+        taskId: task.id,
+        isGhost: true,
+        activated: false,
+        action: task.action,
+        items: [],
+      },
+    }));
+    return { nodes: [...ghostNodes, ...state.nodes] };
+  }),
+
   addNodeFromEvent: (payload) => {
     const { nodes, edges, activeTicketId } = get();
     if (payload.ticket_id !== activeTicketId) return;
 
     // Handle tool_result — patch fileContent onto matching file_read node
-    if (payload.event.type === 'tool_result') {
-      const { tool_use_id, content } = payload.event;
+    if (payload.kind.type === 'tool_result') {
+      const { tool_use_id, content } = payload.kind;
       const text = textFromToolResult(content);
       if (!text) return;
       const targetIndex = nodes.findIndex(
@@ -112,36 +144,67 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       return;
     }
 
-    const nodeType = nodeTypeFromEvent(payload.event);
-    if (!nodeType) return;
+    const mappedType = nodeTypeFromEvent(payload.kind);
+    if (!mappedType) return;
 
-    const content = contentFromEvent(payload.event);
-    const filePath = filePathFromEvent(payload.event);
-    const label = itemLabelFromEvent(payload.event);
+    const content = contentFromEvent(payload.kind);
+    const filePath = filePathFromEvent(payload.kind);
+    const label = itemLabelFromEvent(payload.kind);
+    const nodeId = nodeIdFromPayload(payload);
+
+    let newNodes: Node<CanvasNodeData>[];
+    let newEdges = [...edges];
 
     // Merge consecutive tool nodes of the same type into one grouped node.
-    if (GROUPABLE.includes(nodeType) && nodes.length > 0) {
-      const last = nodes[nodes.length - 1];
-      if (last.data.nodeType === nodeType) {
-        const prevItems = (last.data.items as string[] | undefined) ?? [];
+    if (GROUPABLE.includes(mappedType) && nodes.length > 0) {
+      // Find last non-ghost node
+      const lastNonGhost = [...nodes].reverse().find((n) => !n.data.isGhost);
+      if (lastNonGhost && lastNonGhost.data.nodeType === mappedType) {
+        const lastIdx = nodes.lastIndexOf(lastNonGhost);
+        const prevItems = (lastNonGhost.data.items as string[] | undefined) ?? [];
         const updatedNode = {
-          ...last,
-          data: { ...last.data, items: [...prevItems, label] },
+          ...lastNonGhost,
+          data: { ...lastNonGhost.data, items: [...prevItems, label] },
         };
-        set({ nodes: [...nodes.slice(0, -1), updatedNode] });
+        newNodes = [...nodes.slice(0, lastIdx), updatedNode, ...nodes.slice(lastIdx + 1)];
+        // No new edges needed when merging
+        // Still run ghost activation below
+        const isFileEdit = mappedType === 'file_edit' || mappedType === 'file_write';
+        if (isFileEdit && payload.kind.type === 'tool_use') {
+          const editedPath = String(
+            (payload.kind.tool_input['file_path'] ?? payload.kind.tool_input['path']) ?? ''
+          );
+          if (editedPath) {
+            newNodes = newNodes.map((n) => {
+              if (n.data.isGhost && n.data.filePath) {
+                const ghostPath = String(n.data.filePath);
+                if (
+                  editedPath.endsWith(ghostPath) ||
+                  ghostPath.endsWith(editedPath) ||
+                  editedPath === ghostPath
+                ) {
+                  return { ...n, data: { ...n.data, activated: true, isGhost: false } };
+                }
+              }
+              return n;
+            });
+          }
+        }
+        set({ nodes: newNodes, edges: newEdges });
         return;
       }
     }
 
-    const xPosition = nodes.length * NODE_HORIZONTAL_SPACING;
-    const items = GROUPABLE.includes(nodeType) ? [label] : undefined;
+    // Count only non-ghost nodes for execution layout
+    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const items = GROUPABLE.includes(mappedType) ? [label] : undefined;
 
     const newNode: Node<CanvasNodeData> = {
-      id: payload.node_id,
-      type: nodeType,
+      id: nodeId,
+      type: mappedType,
       position: { x: xPosition, y: 80 },
       data: {
-        nodeType,
+        nodeType: mappedType,
         agentId: payload.agent_id,
         ticketId: payload.ticket_id,
         content,
@@ -150,19 +213,44 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       },
     };
 
-    const newEdges = [...edges];
     if (nodes.length > 0) {
-      const prevNode = nodes[nodes.length - 1];
+      // Connect from last non-ghost node (or last node if all ghost)
+      const prevNode = [...nodes].reverse().find((n) => !n.data.isGhost) ?? nodes[nodes.length - 1];
       newEdges.push({
-        id: `${prevNode.id}->${payload.node_id}`,
+        id: `${prevNode.id}->${nodeId}`,
         source: prevNode.id,
-        target: payload.node_id,
+        target: nodeId,
         type: 'smoothstep',
         style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
       });
     }
 
-    set({ nodes: [...nodes, newNode], edges: newEdges });
+    newNodes = [...nodes, newNode];
+
+    // Activate matching ghost nodes when a file is edited or written
+    const isFileEdit = mappedType === 'file_edit' || mappedType === 'file_write';
+    if (isFileEdit && payload.kind.type === 'tool_use') {
+      const editedPath = String(
+        (payload.kind.tool_input['file_path'] ?? payload.kind.tool_input['path']) ?? ''
+      );
+      if (editedPath) {
+        newNodes = newNodes.map((n) => {
+          if (n.data.isGhost && n.data.filePath) {
+            const ghostPath = String(n.data.filePath);
+            if (
+              editedPath.endsWith(ghostPath) ||
+              ghostPath.endsWith(editedPath) ||
+              editedPath === ghostPath
+            ) {
+              return { ...n, data: { ...n.data, activated: true, isGhost: false } };
+            }
+          }
+          return n;
+        });
+      }
+    }
+
+    set({ nodes: newNodes, edges: newEdges });
   },
 
   setAwaiting: (question, sessionId) => {

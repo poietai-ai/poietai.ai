@@ -11,10 +11,11 @@ export type AgentEventKind =
   | { type: 'result'; result?: string; session_id?: string };
 
 export interface CanvasNodePayload {
-  node_id: string;
+  /** Optional explicit node id; derived from kind.id for tool_use, or auto-generated. */
+  node_id?: string;
   agent_id: string;
   ticket_id: string;
-  event: AgentEventKind;
+  kind: AgentEventKind;
 }
 
 // Visual node types rendered by @xyflow/react
@@ -28,7 +29,8 @@ export type CanvasNodeType =
   | 'awaiting_user'
   | 'user_reply'
   | 'pr_opened'
-  | 'ci_review';
+  | 'ci_review'
+  | 'plan_task';
 
 export interface CanvasNodeData extends Record<string, unknown> {
   nodeType: CanvasNodeType;
@@ -42,6 +44,11 @@ export interface CanvasNodeData extends Record<string, unknown> {
   diff?: string;
   sessionId?: string;
   approved?: boolean;
+  // M2: ghost graph fields
+  isGhost?: boolean;      // true = plan task not yet executed
+  activated?: boolean;    // true = agent has touched this file
+  taskId?: string;        // matches PlanTask.id
+  action?: 'create' | 'modify' | 'delete';
 }
 
 // Full node type for use in NodeProps — wraps CanvasNodeData in @xyflow/react's Node shape.
