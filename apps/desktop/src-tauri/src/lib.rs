@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use tauri::{Manager, State};
 
-use log::{error, info, warn};
+use log::{error, info};
 
 use agent::state::{
     all_agents, get_agent, new_store, set_status, upsert_agent, AgentState, AgentStatus, StateStore,
@@ -79,6 +79,9 @@ pub struct StartAgentPayload {
     /// The current ticket phase (e.g. "brief", "design", "plan", "build", etc.).
     /// Defaults to Build if absent or unrecognised.
     pub phase: Option<String>,
+    /// When set, skip worktree creation and run in this directory instead.
+    /// Used by VALIDATE phase to reuse the BUILD agent's worktree.
+    pub worktree_path_override: Option<String>,
 }
 
 /// Assign a ticket to an agent and start the Claude process.
@@ -114,30 +117,38 @@ async fn start_agent(
     let agent = get_agent(&agents_store, &payload.agent_id)
         .ok_or_else(|| format!("agent '{}' not found", payload.agent_id))?;
 
-    // Create the git worktree
-    let wt_config = git::worktree::WorktreeConfig {
-        repo_root: repo_root.clone(),
-        ticket_id: payload.ticket_id.clone(),
-        ticket_slug: payload.ticket_slug.clone(),
-        agent_name: agent.name.clone(),
-        agent_email: format!("{}@poietai.ai", agent.role),
+    // Create the git worktree, or reuse an override path (e.g. for VALIDATE phase).
+    let (working_dir, env) = if let Some(ref override_path) = payload.worktree_path_override {
+        info!("[start_agent] using worktree override at {}", override_path);
+        // Save the override path so get_worktree_diff and resume_agent can find it
+        if let Some(mut a) = get_agent(&agents_store, &payload.agent_id) {
+            a.worktree_path = Some(override_path.clone());
+            upsert_agent(&agents_store, a);
+        }
+        (PathBuf::from(override_path), vec![])
+    } else {
+        let wt_config = git::worktree::WorktreeConfig {
+            repo_root: repo_root.clone(),
+            ticket_id: payload.ticket_id.clone(),
+            ticket_slug: payload.ticket_slug.clone(),
+            agent_name: agent.name.clone(),
+            agent_email: format!("{}@poietai.ai", agent.role),
+        };
+        info!("[start_agent] creating worktree for ticket={}", payload.ticket_id);
+        let worktree = git::worktree::create(&wt_config)
+            .map_err(|e| {
+                error!("[start_agent] worktree creation failed: {}", e);
+                format!("failed to create worktree: {}", e)
+            })?;
+        info!("[start_agent] worktree created at {:?}", worktree.path);
+        // Save worktree path to agent state
+        if let Some(mut a) = get_agent(&agents_store, &payload.agent_id) {
+            a.worktree_path = Some(worktree.path.to_string_lossy().to_string());
+            upsert_agent(&agents_store, a);
+        }
+        let env = git::worktree::agent_env(&wt_config, &payload.gh_token);
+        (worktree.path, env)
     };
-
-    info!("[start_agent] creating worktree for ticket={}", payload.ticket_id);
-    let worktree = git::worktree::create(&wt_config)
-        .map_err(|e| {
-            error!("[start_agent] worktree creation failed: {}", e);
-            format!("failed to create worktree: {}", e)
-        })?;
-    info!("[start_agent] worktree created at {:?}", worktree.path);
-
-    // Save worktree path to agent state
-    if let Some(mut a) = get_agent(&agents_store, &payload.agent_id) {
-        a.worktree_path = Some(worktree.path.to_string_lossy().to_string());
-        upsert_agent(&agents_store, a);
-    }
-
-    let env = git::worktree::agent_env(&wt_config, &payload.gh_token);
 
     // Append a phase-specific instruction section to whatever system prompt React provided.
     let system_prompt_text = {
@@ -171,32 +182,41 @@ async fn start_agent(
         ticket_id: payload.ticket_id.clone(),
         prompt: payload.prompt.clone(),
         system_prompt: system_prompt_text,
-        allowed_tools: vec![
-            "Read".to_string(),
-            "Edit".to_string(),
-            "Write".to_string(),
-            "Glob".to_string(),
-            "Grep".to_string(),
-            // Version control
-            "Bash(git:*)".to_string(),
-            "Bash(gh:*)".to_string(),
-            // Rust
-            "Bash(cargo:*)".to_string(),
-            // Node / JS
-            "Bash(npm:*)".to_string(),
-            "Bash(npx:*)".to_string(),
-            "Bash(node:*)".to_string(),
-            "Bash(pnpm:*)".to_string(),
-            "Bash(yarn:*)".to_string(),
-            // Shell utilities agents commonly need
-            "Bash(ls:*)".to_string(),
-            "Bash(mkdir:*)".to_string(),
-            "Bash(cp:*)".to_string(),
-            "Bash(mv:*)".to_string(),
-            "Bash(cat:*)".to_string(),
-            "Bash(echo:*)".to_string(),
-        ],
-        working_dir: worktree.path.clone(),
+        allowed_tools: match phase {
+            TicketPhase::Validate | TicketPhase::Qa | TicketPhase::Security => vec![
+                "Read".to_string(),
+                "Grep".to_string(),
+                "Glob".to_string(),
+                "Bash(git:*)".to_string(),
+            ],
+            TicketPhase::Brief
+            | TicketPhase::Design
+            | TicketPhase::Plan
+            | TicketPhase::Build
+            | TicketPhase::Review
+            | TicketPhase::Ship => vec![
+                "Read".to_string(),
+                "Edit".to_string(),
+                "Write".to_string(),
+                "Glob".to_string(),
+                "Grep".to_string(),
+                "Bash(git:*)".to_string(),
+                "Bash(gh:*)".to_string(),
+                "Bash(cargo:*)".to_string(),
+                "Bash(npm:*)".to_string(),
+                "Bash(npx:*)".to_string(),
+                "Bash(node:*)".to_string(),
+                "Bash(pnpm:*)".to_string(),
+                "Bash(yarn:*)".to_string(),
+                "Bash(ls:*)".to_string(),
+                "Bash(mkdir:*)".to_string(),
+                "Bash(cp:*)".to_string(),
+                "Bash(mv:*)".to_string(),
+                "Bash(cat:*)".to_string(),
+                "Bash(echo:*)".to_string(),
+            ],
+        },
+        working_dir: working_dir.clone(),
         env,
         resume_session_id: payload.resume_session_id,
         mcp_port: state.mcp.port,
@@ -337,6 +357,45 @@ async fn answer_agent(
     state.mcp.answer(&agent_id, reply).await
 }
 
+/// Get the git diff for an agent's worktree relative to the base branch.
+/// Returns the diff string for the VALIDATE phase to inspect.
+#[tauri::command]
+fn get_worktree_diff(
+    state: State<'_, AppState>,
+    agent_id: String,
+) -> Result<String, String> {
+    let agent = get_agent(&state.agents, &agent_id)
+        .ok_or_else(|| format!("agent '{}' not found", agent_id))?;
+    let worktree_path = agent
+        .worktree_path
+        .ok_or_else(|| format!("agent '{}' has no worktree", agent_id))?;
+
+    // Try "git diff main...HEAD" first (works when branched off main)
+    let output = std::process::Command::new("git")
+        .args(["diff", "main...HEAD"])
+        .current_dir(&worktree_path)
+        .output()
+        .map_err(|e| format!("git diff failed: {}", e))?;
+
+    if output.status.success() && !output.stdout.is_empty() {
+        return String::from_utf8(output.stdout).map_err(|e| e.to_string());
+    }
+
+    // Fallback: diff against the immediate parent commit
+    let fallback = std::process::Command::new("git")
+        .args(["diff", "HEAD~1..HEAD"])
+        .current_dir(&worktree_path)
+        .output()
+        .map_err(|e| format!("git diff fallback failed: {}", e))?;
+
+    if !fallback.status.success() {
+        let stderr = String::from_utf8_lossy(&fallback.stderr);
+        return Err(format!("git diff fallback failed: {}", stderr));
+    }
+
+    String::from_utf8(fallback.stdout).map_err(|e| e.to_string())
+}
+
 // ── App entry point ───────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -384,6 +443,7 @@ pub fn run() {
             create_agent,
             scan_folder,
             get_all_agents,
+            get_worktree_diff,
             start_agent,
             resume_agent,
             start_pr_poll,

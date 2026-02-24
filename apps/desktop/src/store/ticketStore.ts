@@ -4,7 +4,7 @@ import { phasesForComplexity, nextPhase } from '../lib/phaseRouter';
 
 export type TicketStatus =
   | 'backlog' | 'refined' | 'assigned'
-  | 'in_progress' | 'in_review' | 'shipped';
+  | 'in_progress' | 'in_review' | 'shipped' | 'blocked';
 
 export type TicketPhase =
   | 'brief' | 'design' | 'review' | 'plan' | 'build'
@@ -45,6 +45,7 @@ interface TicketStore {
   selectTicket: (id: string | null) => void;
   advanceTicketPhase: (id: string) => void;
   setPhaseArtifact: (id: string, artifact: Artifact) => void;
+  blockTicket: (id: string) => void;
 }
 
 const DEMO_TICKETS: Ticket[] = [
@@ -136,4 +137,9 @@ export const useTicketStore = create<TicketStore>((set) => ({
       t.id !== id ? t : { ...t, artifacts: { ...t.artifacts, [artifact.phase]: artifact } }
     ),
   })),
+
+  blockTicket: (id) =>
+    set((s) => ({
+      tickets: s.tickets.map((t) => (t.id === id ? { ...t, status: 'blocked' as TicketStatus } : t)),
+    })),
 }));
