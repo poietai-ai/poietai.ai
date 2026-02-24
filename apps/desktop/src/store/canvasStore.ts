@@ -144,7 +144,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   onNodesChange: (changes) => {
-    set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) }));
+    set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) as Node<CanvasNodeData>[] }));
   },
 
   clearCanvas: () => {
