@@ -12,12 +12,17 @@ interface PromptInput {
   ticketTitle: string;
   ticketDescription: string;
   ticketAcceptanceCriteria: string[];
+  planContent?: string;  // When provided, replaces ticket section — BUILD phase only
 }
 
 export function buildPrompt(input: PromptInput): string {
-  const criteria = input.ticketAcceptanceCriteria
-    .map((c) => `- ${c}`)
-    .join('\n');
+  const ticketSection = input.planContent
+    ? `## Execution Plan (Source of Truth)\n\nThis is the complete, approved plan. Follow it exactly.\n\n${input.planContent}`
+    : `## Current Ticket\n\nTicket #${input.ticketNumber}: ${input.ticketTitle}\n\n${input.ticketDescription}\n\nAcceptance criteria:\n${
+        input.ticketAcceptanceCriteria.length > 0
+          ? input.ticketAcceptanceCriteria.map((c) => `- ${c}`).join('\n')
+          : '- (none specified)'
+      }`;
 
   return [
     `## Your Role`,
@@ -27,11 +32,7 @@ export function buildPrompt(input: PromptInput): string {
     `${input.projectName} — ${input.projectStack}`,
     input.projectContext,
     ``,
-    `## Ticket #${input.ticketNumber}: ${input.ticketTitle}`,
-    input.ticketDescription,
-    ``,
-    `Acceptance criteria:`,
-    criteria || `No explicit criteria — use good judgment.`,
+    ticketSection,
     ``,
     `## Tool Restrictions`,
     `Do NOT use the \`AskUserQuestion\` tool — it is disabled in headless mode and will always error.`,
