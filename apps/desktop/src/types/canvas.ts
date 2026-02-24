@@ -30,7 +30,8 @@ export type CanvasNodeType =
   | 'user_reply'
   | 'pr_opened'
   | 'ci_review'
-  | 'plan_task';
+  | 'plan_task'
+  | 'validate_result';
 
 export interface CanvasNodeData extends Record<string, unknown> {
   nodeType: CanvasNodeType;
@@ -49,6 +50,8 @@ export interface CanvasNodeData extends Record<string, unknown> {
   activated?: boolean;    // true = agent has touched this file
   taskId?: string;        // matches PlanTask.id
   action?: 'create' | 'modify' | 'delete';
+  // M3: validate result summary
+  validateSummary?: { verified: number; critical: number; advisory: number };
 }
 
 // Full node type for use in NodeProps — wraps CanvasNodeData in @xyflow/react's Node shape.
