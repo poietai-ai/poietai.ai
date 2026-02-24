@@ -28,7 +28,8 @@ export type CanvasNodeType =
   | 'awaiting_user'
   | 'user_reply'
   | 'pr_opened'
-  | 'ci_review';
+  | 'ci_review'
+  | 'plan_task';
 
 export interface CanvasNodeData extends Record<string, unknown> {
   nodeType: CanvasNodeType;
@@ -42,6 +43,11 @@ export interface CanvasNodeData extends Record<string, unknown> {
   diff?: string;
   sessionId?: string;
   approved?: boolean;
+  // M2: ghost graph fields
+  isGhost?: boolean;      // true = plan task not yet executed
+  activated?: boolean;    // true = agent has touched this file
+  taskId?: string;        // matches PlanTask.id
+  action?: 'create' | 'modify' | 'delete';
 }
 
 // Full node type for use in NodeProps — wraps CanvasNodeData in @xyflow/react's Node shape.

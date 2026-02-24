@@ -2,6 +2,7 @@ import { ThoughtNode } from './ThoughtNode';
 import { FileNode } from './FileNode';
 import { BashNode } from './BashNode';
 import { AwaitingNode } from './AwaitingNode';
+import { PlanTaskNode } from './PlanTaskNode';
 
 // Maps node type strings (from Zustand) to React components.
 // Passed to ReactFlow as the `nodeTypes` prop.
@@ -13,4 +14,5 @@ export const nodeTypes = {
   file_write: FileNode,
   bash_command: BashNode,
   awaiting_user: AwaitingNode,
+  plan_task: PlanTaskNode,
 } as const;
