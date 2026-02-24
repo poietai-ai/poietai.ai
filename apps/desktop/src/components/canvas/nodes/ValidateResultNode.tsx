@@ -1,4 +1,4 @@
-import type { NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { CanvasNodeData } from '../../../types/canvas';
 
 export function ValidateResultNode({ data }: NodeProps) {
@@ -36,9 +36,10 @@ export function ValidateResultNode({ data }: NodeProps) {
       </div>
       {hasCritical && (
         <div className="mt-2 text-red-400 text-[10px] font-semibold">
-          ⛔ Critical drift detected — ticket blocked
+          Critical drift detected — ticket blocked
         </div>
       )}
+      <Handle type="target" position={Position.Left} className="!bg-zinc-500" />
     </div>
   );
 }
