@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use tauri::{Manager, State};
 
-use log::{error, info, warn};
+use log::{error, info};
 
 use agent::state::{
     all_agents, get_agent, new_store, set_status, upsert_agent, AgentState, AgentStatus, StateStore,

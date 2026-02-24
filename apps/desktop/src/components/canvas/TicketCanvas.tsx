@@ -68,6 +68,8 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
           .reverse()
           .find((n) => n.data.nodeType === 'agent_message');
 
+        let wasBlocked = false;
+
         if (lastTextNode) {
           const content = String(lastTextNode.data.content);
           useTicketStore.getState().setPhaseArtifact(ticket_id, {
@@ -83,12 +85,15 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
             useCanvasStore.getState().addValidateResultNode(result);
             if (result.critical > 0) {
               useTicketStore.getState().blockTicket(ticket_id);
+              wasBlocked = true;
             }
           }
         }
 
-        // Advance to the next phase
-        useTicketStore.getState().advanceTicketPhase(ticket_id);
+        // Advance to the next phase only if not blocked by critical mismatches
+        if (!wasBlocked) {
+          useTicketStore.getState().advanceTicketPhase(ticket_id);
+        }
 
         // After advance: check if we've entered VALIDATE — auto-trigger
         const updatedTicket = useTicketStore.getState().tickets.find((t) => t.id === ticket_id);
@@ -144,6 +149,9 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
 
               await invoke<void>('start_agent', {
                 payload: {
+                  // Reuse the BUILD agent's id — the validate agent runs as the same agent
+                  // identity. This is intentional: the agent switches roles via the phase
+                  // prompt rather than being a separate roster entry.
                   agent_id,
                   ticket_id,
                   ticket_slug: updatedTicket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
