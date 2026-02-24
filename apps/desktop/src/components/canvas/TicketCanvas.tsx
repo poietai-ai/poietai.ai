@@ -4,9 +4,11 @@ import { listen } from '@tauri-apps/api/event';
 import '@xyflow/react/dist/style.css';
 
 import { useCanvasStore } from '../../store/canvasStore';
+import { useTicketStore } from '../../store/ticketStore';
 import { nodeTypes } from './nodes';
 import { AskUserOverlay } from './AskUserOverlay';
 import { AgentQuestionCard } from './AgentQuestionCard';
+import { PhaseBreadcrumb } from './PhaseBreadcrumb';
 import type { CanvasNodePayload, AgentQuestionPayload } from '../../types/canvas';
 
 interface AgentResultPayload {
@@ -27,6 +29,8 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
     awaitingQuestion, awaitingSessionId,
     setAwaiting, clearAwaiting,
   } = useCanvasStore();
+
+  const ticket = useTicketStore((s) => s.tickets.find((t) => t.id === ticketId));
 
   // Active mid-task questions from ask_human MCP calls (agent stays running)
   const [activeQuestions, setActiveQuestions] = useState<AgentQuestionPayload[]>([]);
@@ -82,47 +86,52 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
   const agentId = lastNode ? String(lastNode.data.agentId ?? '') : '';
 
   return (
-    <div className="relative w-full h-full bg-zinc-50">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        fitView
-        colorMode="light"
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={28}
-          size={2}
-          color="#a1a1aa"
-        />
-        <Controls />
-      </ReactFlow>
-
-      {/* Mid-task questions — agent is still running, waiting for reply */}
-      {activeQuestions.length > 0 && (
-        <div className="absolute bottom-4 left-4 right-4 flex flex-col gap-2 pointer-events-auto">
-          {activeQuestions.map((q) => (
-            <AgentQuestionCard
-              key={q.agent_id}
-              payload={q}
-              onAnswered={handleQuestionAnswered}
-            />
-          ))}
-        </div>
+    <div className="flex flex-col h-full">
+      {ticket && ticket.phases.length > 0 && (
+        <PhaseBreadcrumb phases={ticket.phases} activePhase={ticket.activePhase} />
       )}
+      <div className="relative flex-1 bg-zinc-50">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          fitView
+          colorMode="light"
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={28}
+            size={2}
+            color="#a1a1aa"
+          />
+          <Controls />
+        </ReactFlow>
 
-      {/* End-of-run question — agent exited, will resume via --resume */}
-      {awaitingQuestion && awaitingSessionId && (
-        <AskUserOverlay
-          question={awaitingQuestion}
-          sessionId={awaitingSessionId}
-          agentId={agentId}
-          onDismiss={clearAwaiting}
-        />
-      )}
+        {/* Mid-task questions — agent is still running, waiting for reply */}
+        {activeQuestions.length > 0 && (
+          <div className="absolute bottom-4 left-4 right-4 flex flex-col gap-2 pointer-events-auto">
+            {activeQuestions.map((q) => (
+              <AgentQuestionCard
+                key={q.agent_id}
+                payload={q}
+                onAnswered={handleQuestionAnswered}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* End-of-run question — agent exited, will resume via --resume */}
+        {awaitingQuestion && awaitingSessionId && (
+          <AskUserOverlay
+            question={awaitingQuestion}
+            sessionId={awaitingSessionId}
+            agentId={agentId}
+            onDismiss={clearAwaiting}
+          />
+        )}
+      </div>
     </div>
   );
 }
