@@ -120,6 +120,11 @@ async fn start_agent(
     // Create the git worktree, or reuse an override path (e.g. for VALIDATE phase).
     let (working_dir, env) = if let Some(ref override_path) = payload.worktree_path_override {
         info!("[start_agent] using worktree override at {}", override_path);
+        // Save the override path so get_worktree_diff and resume_agent can find it
+        if let Some(mut a) = get_agent(&agents_store, &payload.agent_id) {
+            a.worktree_path = Some(override_path.clone());
+            upsert_agent(&agents_store, a);
+        }
         (PathBuf::from(override_path), vec![])
     } else {
         let wt_config = git::worktree::WorktreeConfig {
@@ -184,7 +189,12 @@ async fn start_agent(
                 "Glob".to_string(),
                 "Bash(git:*)".to_string(),
             ],
-            _ => vec![
+            TicketPhase::Brief
+            | TicketPhase::Design
+            | TicketPhase::Plan
+            | TicketPhase::Build
+            | TicketPhase::Review
+            | TicketPhase::Ship => vec![
                 "Read".to_string(),
                 "Edit".to_string(),
                 "Write".to_string(),
@@ -377,6 +387,11 @@ fn get_worktree_diff(
         .current_dir(&worktree_path)
         .output()
         .map_err(|e| format!("git diff fallback failed: {}", e))?;
+
+    if !fallback.status.success() {
+        let stderr = String::from_utf8_lossy(&fallback.stderr);
+        return Err(format!("git diff fallback failed: {}", stderr));
+    }
 
     String::from_utf8(fallback.stdout).map_err(|e| e.to_string())
 }
