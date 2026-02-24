@@ -14,6 +14,7 @@ use log::{error, info, warn};
 use agent::state::{
     all_agents, get_agent, new_store, set_status, upsert_agent, AgentState, AgentStatus, StateStore,
 };
+use context::builder::TicketPhase;
 
 /// Global app state — injected into Tauri commands via State<AppState>.
 pub struct AppState {
@@ -75,6 +76,9 @@ pub struct StartAgentPayload {
     pub repo_root: String,
     pub gh_token: String,
     pub resume_session_id: Option<String>,
+    /// The current ticket phase (e.g. "brief", "design", "plan", "build", etc.).
+    /// Defaults to Build if absent or unrecognised.
+    pub phase: Option<String>,
 }
 
 /// Assign a ticket to an agent and start the Claude process.
@@ -91,6 +95,13 @@ async fn start_agent(
     let agents_store = state.agents.clone();
 
     info!("[start_agent] agent={} ticket={} repo={}", payload.agent_id, payload.ticket_id, payload.repo_root);
+
+    // Resolve the ticket phase — deserialise from the lowercase string sent by React.
+    // serde_json::from_str expects a JSON string value, so we wrap in quotes.
+    let phase: TicketPhase = payload.phase
+        .as_deref()
+        .and_then(|p| serde_json::from_str(&format!("\"{}\"", p)).ok())
+        .unwrap_or_default(); // defaults to TicketPhase::Build
 
     // Mark agent as working
     set_status(&agents_store, &payload.agent_id, AgentStatus::Working);
@@ -128,11 +139,38 @@ async fn start_agent(
 
     let env = git::worktree::agent_env(&wt_config, &payload.gh_token);
 
+    // Append a phase-specific instruction section to whatever system prompt React provided.
+    let system_prompt_text = {
+        let phase_section = {
+            // We only need phase_prompt_section here; build a minimal ContextInput just to
+            // call it, since the base system_prompt text already came from React.
+            use context::builder::ContextInput;
+            let dummy = ContextInput {
+                role: "",
+                personality: "",
+                project_name: "",
+                project_stack: "",
+                project_context: "",
+                ticket_number: 0,
+                ticket_title: "",
+                ticket_description: "",
+                ticket_acceptance_criteria: &[],
+                agent_id: "",
+            };
+            dummy.phase_prompt_section(&phase)
+        };
+        if phase_section.is_empty() {
+            payload.system_prompt.clone()
+        } else {
+            format!("{}\n\n{}", payload.system_prompt, phase_section)
+        }
+    };
+
     let run_config = agent::process::AgentRunConfig {
         agent_id: payload.agent_id.clone(),
         ticket_id: payload.ticket_id.clone(),
         prompt: payload.prompt.clone(),
-        system_prompt: payload.system_prompt.clone(),
+        system_prompt: system_prompt_text,
         allowed_tools: vec![
             "Read".to_string(),
             "Edit".to_string(),

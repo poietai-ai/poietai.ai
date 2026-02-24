@@ -1,3 +1,18 @@
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TicketPhase {
+    Brief,
+    Design,
+    Review,
+    #[default]
+    Build,
+    Plan,
+    Validate,
+    Qa,
+    Security,
+    Ship,
+}
+
 /// Everything needed to build a system prompt for an agent run.
 pub struct ContextInput<'a> {
     pub role: &'a str,
@@ -11,6 +26,87 @@ pub struct ContextInput<'a> {
     pub ticket_description: &'a str,
     pub ticket_acceptance_criteria: &'a [String],
     pub agent_id: &'a str,
+}
+
+impl ContextInput<'_> {
+    pub fn phase_prompt_section(&self, phase: &TicketPhase) -> String {
+        match phase {
+            TicketPhase::Brief => "\
+## Your Task: BRIEF Phase
+Extract structured requirements from the user's raw idea.
+Produce a brief with these sections:
+- **Problem statement** (1-2 sentences)
+- **User stories** (\"As a ... I want ... so that ...\")
+- **Constraints** (technical, scope, time)
+- **Open questions** for the human to resolve
+Keep it concise — this is the input to design, not the design itself.
+Output as markdown.".to_string(),
+
+            TicketPhase::Design => "\
+## Your Task: DESIGN Phase
+Produce a formal design document. Use the brief artifact as input.
+Sections required:
+- **Approach** (chosen solution and rationale)
+- **Data models** (interfaces/types with field descriptions)
+- **API contracts** (function signatures or HTTP endpoints)
+- **Architectural decisions** (what you chose and what you rejected, and why)
+- **Codebase grounding** (reference actual files/patterns from the project)
+Ground every recommendation in the actual codebase. Use Read tool to verify.".to_string(),
+
+            TicketPhase::Plan => "\
+## Your Task: PLAN Phase
+Produce a structured execution plan as JSON. The plan must be so specific that
+a build agent never needs to ask clarifying questions or search the web.
+Rules:
+- Each task group: ≤5 atomic tasks
+- Every task: exact file path, code example showing the pattern to follow, named test cases with assertions
+- Verify zero file conflicts between parallel groups before outputting
+- Reference existing patterns by file:line (use Read tool to verify they exist)
+Output the JSON plan wrapped in a ```json ... ``` fence.
+If any requirement is unclear, stop and ask rather than guessing.".to_string(),
+
+            TicketPhase::Build => "\
+## Your Task: BUILD Phase
+You have been given a complete execution plan. Follow it exactly.
+Rules:
+- Do NOT make design decisions — those were made in the PLAN phase
+- Do NOT search the web — if the plan is insufficient, stop and report which task is unclear
+- Do NOT modify files not listed in your task group
+- Implement every task in your assigned group
+- Run the test cases specified in the plan and confirm they pass
+- Open a PR when all tasks are complete and tests pass".to_string(),
+
+            TicketPhase::Validate => "\
+## Your Task: VALIDATE Phase
+You are an independent validator. You have not seen the build agent's reasoning.
+You have two inputs: (1) the approved plan (source of truth), (2) the current code (target).
+For every claim in the plan, verify it against the actual code.
+Output format per claim:
+  VERIFIED | <claim summary> | <file:line>
+  MISMATCH | <claim summary> | Expected: <what plan says> | Found: <what code does> | CRITICAL|ADVISORY
+Do not fix anything. Only report.".to_string(),
+
+            TicketPhase::Qa => "\
+## Your Task: QA Phase
+Review the diff against project coding standards.
+Check for: naming convention violations, missing error handling, dead code, insufficient tests.
+Output format per finding:
+  CRITICAL | <description> | <file:line>
+  WARNING  | <description> | <file:line>
+  ADVISORY | <description> | <file:line>
+Do not fix. Only report.".to_string(),
+
+            TicketPhase::Security => "\
+## Your Task: SECURITY Phase
+Review the diff for security vulnerabilities. Focus on OWASP Top 10.
+Check for: injection vectors, authentication bypasses, sensitive data exposure, insecure dependencies.
+Output format per finding:
+  CRITICAL | <CVE/OWASP category> | <description> | <file:line>
+  WARNING  | <description> | <file:line>".to_string(),
+
+            TicketPhase::Review | TicketPhase::Ship => String::new(),
+        }
+    }
 }
 
 /// Personality descriptions injected into the system prompt.
@@ -76,7 +172,7 @@ fn role_description(role: &str) -> &'static str {
 }
 
 /// Build the full system prompt string for a single agent run.
-pub fn build(input: &ContextInput) -> String {
+pub fn build(input: &ContextInput, phase: &TicketPhase) -> String {
     let acceptance_criteria = if input.ticket_acceptance_criteria.is_empty() {
         "No explicit criteria — use good judgment.".to_string()
     } else {
@@ -88,7 +184,7 @@ pub fn build(input: &ContextInput) -> String {
             .join("\n")
     };
 
-    format!(
+    let base = format!(
         "## Your Role\n\
         You are a {role} on the {project} engineering team.\n\
         {role_desc}\n\n\
@@ -133,7 +229,14 @@ pub fn build(input: &ContextInput) -> String {
         ticket_description = input.ticket_description,
         acceptance_criteria = acceptance_criteria,
         agent_id = input.agent_id,
-    )
+    );
+
+    let phase_section = input.phase_prompt_section(phase);
+    if phase_section.is_empty() {
+        base
+    } else {
+        format!("{}\n\n{}", base, phase_section)
+    }
 }
 
 #[cfg(test)]
@@ -161,7 +264,7 @@ mod tests {
             ticket_acceptance_criteria: criteria,
             agent_id: "test-agent-123",
         };
-        build(&input)
+        build(&input, &TicketPhase::Build)
     }
 
     fn default_criteria() -> Vec<String> {
@@ -225,7 +328,7 @@ mod tests {
             ticket_acceptance_criteria: &criteria,
             agent_id: "test-agent-123",
         };
-        let prompt = build(&input);
+        let prompt = build(&input, &TicketPhase::Build);
         assert!(prompt.contains("skilled, collaborative"));
     }
 
@@ -241,5 +344,47 @@ mod tests {
         let prompt = build_prompt_with_criteria(&default_criteria());
         assert!(prompt.contains("AskUserQuestion"));
         assert!(prompt.contains("automated agent"));
+    }
+
+    #[test]
+    fn build_phase_appends_phase_section() {
+        let criteria = default_criteria();
+        let input = ContextInput {
+            role: "backend-engineer",
+            personality: "pragmatic",
+            project_name: "RRP API",
+            project_stack: "Go 1.23, PostgreSQL, pgx",
+            project_context: "Key patterns: use apperr.New for errors.",
+            ticket_number: 1,
+            ticket_title: "Test",
+            ticket_description: "Test description.",
+            ticket_acceptance_criteria: &criteria,
+            agent_id: "test-agent-123",
+        };
+        let prompt = build(&input, &TicketPhase::Brief);
+        assert!(prompt.contains("BRIEF Phase"));
+        assert!(prompt.contains("Problem statement"));
+    }
+
+    #[test]
+    fn review_and_ship_phases_produce_no_phase_section() {
+        let criteria = default_criteria();
+        let input = ContextInput {
+            role: "backend-engineer",
+            personality: "pragmatic",
+            project_name: "RRP API",
+            project_stack: "Go 1.23, PostgreSQL, pgx",
+            project_context: "Key patterns: use apperr.New for errors.",
+            ticket_number: 1,
+            ticket_title: "Test",
+            ticket_description: "Test description.",
+            ticket_acceptance_criteria: &criteria,
+            agent_id: "test-agent-123",
+        };
+        let review_prompt = build(&input, &TicketPhase::Review);
+        let ship_prompt = build(&input, &TicketPhase::Ship);
+        // Should not contain phase-specific headers
+        assert!(!review_prompt.contains("## Your Task: REVIEW Phase"));
+        assert!(!ship_prompt.contains("## Your Task: SHIP Phase"));
     }
 }
