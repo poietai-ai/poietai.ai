@@ -51,8 +51,8 @@ export function FileNode({ data }: NodeProps<CanvasNode>) {
       {/* Multi-file list */}
       {listExpanded && (
         <ul className="mt-2 space-y-1 max-h-36 overflow-y-auto border-t border-zinc-100 pt-2">
-          {items.map((item, i) => (
-            <li key={i} className="text-zinc-500 text-xs font-mono truncate">
+          {items.map((item) => (
+            <li key={item} className="text-zinc-500 text-xs font-mono truncate">
               {shortPath(item)}
             </li>
           ))}
