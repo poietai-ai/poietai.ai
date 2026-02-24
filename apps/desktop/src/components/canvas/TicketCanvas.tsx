@@ -23,6 +23,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
   const {
     nodes, edges,
     setActiveTicket, addNodeFromEvent,
+    onNodesChange,
     awaitingQuestion, awaitingSessionId,
     setAwaiting, clearAwaiting,
   } = useCanvasStore();
@@ -86,6 +87,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
         fitView
         colorMode="light"
         proOptions={{ hideAttribution: true }}
