@@ -25,7 +25,7 @@ export function FileNode({ data }: NodeProps<CanvasNode>) {
   return (
     <div className={`bg-white border border-zinc-200 border-l-4 ${style.bar}
                      rounded-lg p-3 min-w-48 max-w-xs shadow-sm`}>
-      <Handle type="target" position={Position.Top} />
+      <Handle type="target" position={Position.Left} />
 
       <button
         type="button"
@@ -56,7 +56,7 @@ export function FileNode({ data }: NodeProps<CanvasNode>) {
         </ul>
       )}
 
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Right} />
     </div>
   );
 }

@@ -28,7 +28,7 @@ export function BashNode({ data }: NodeProps<CanvasNode>) {
 
   return (
     <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-3 max-w-xs shadow-sm">
-      <Handle type="target" position={Position.Top} />
+      <Handle type="target" position={Position.Left} />
 
       <button
         type="button"
@@ -58,7 +58,7 @@ export function BashNode({ data }: NodeProps<CanvasNode>) {
         </ul>
       )}
 
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Right} />
     </div>
   );
 }

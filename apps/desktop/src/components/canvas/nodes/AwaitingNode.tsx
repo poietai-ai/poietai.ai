@@ -4,7 +4,7 @@ import type { CanvasNode } from '../../../types/canvas';
 export function AwaitingNode({ data }: NodeProps<CanvasNode>) {
   return (
     <div className="bg-amber-950 border-2 border-amber-500 rounded-lg p-3 max-w-xs shadow-lg animate-pulse">
-      <Handle type="target" position={Position.Top} />
+      <Handle type="target" position={Position.Left} />
       <div className="flex items-start gap-2">
         <span className="text-amber-400 text-sm mt-0.5 flex-shrink-0">⏸</span>
         <div>
@@ -14,7 +14,7 @@ export function AwaitingNode({ data }: NodeProps<CanvasNode>) {
           </p>
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Right} />
     </div>
   );
 }
