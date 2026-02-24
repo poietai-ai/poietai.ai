@@ -66,6 +66,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
           repo_root: repo.repoRoot,
           gh_token: ghToken,
           resume_session_id: null,
+          phase: ticket.activePhase ?? 'build',
         },
       });
       // Only mutate ticket state after the invoke succeeds — no rollback needed.
