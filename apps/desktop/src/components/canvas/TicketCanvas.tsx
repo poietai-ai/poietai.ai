@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
 import { ReactFlow, Background, Controls, BackgroundVariant } from '@xyflow/react';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import '@xyflow/react/dist/style.css';
 
 import { useCanvasStore } from '../../store/canvasStore';
 import { useTicketStore } from '../../store/ticketStore';
+import { useAgentStore } from '../../store/agentStore';
+import { useProjectStore } from '../../store/projectStore';
+import { useSecretsStore } from '../../store/secretsStore';
+import { buildPrompt } from '../../lib/promptBuilder';
+import { parseValidateResult } from '../../lib/parseValidateResult';
 import { nodeTypes } from './nodes';
 import { AskUserOverlay } from './AskUserOverlay';
 import { AgentQuestionCard } from './AgentQuestionCard';
@@ -47,14 +53,16 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
     return () => { unlisten.then((fn) => fn()); };
   }, [addNodeFromEvent]);
 
-  // Listen for agent run completion — capture artifact, advance phase, then check for awaiting question
+  // Listen for agent run completion — capture artifact, advance phase, auto-trigger next agent
   useEffect(() => {
-    const unlisten = listen<AgentResultPayload>('agent-result', (event) => {
+    const unlisten = listen<AgentResultPayload>('agent-result', async (event) => {
       const { agent_id, ticket_id, session_id } = event.payload;
 
-      // --- Phase lifecycle: capture artifact + advance phase ---
+      // --- Phase lifecycle: capture artifact + get completed phase ---
       const ticket = useTicketStore.getState().tickets.find((t) => t.id === ticket_id);
-      if (ticket?.activePhase && ticket.activePhase !== 'ship') {
+      const completedPhase = ticket?.activePhase;
+
+      if (ticket && completedPhase && completedPhase !== 'ship') {
         const currentNodes = useCanvasStore.getState().nodes;
         const lastTextNode = [...currentNodes]
           .reverse()
@@ -63,15 +71,96 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
         if (lastTextNode) {
           const content = String(lastTextNode.data.content);
           useTicketStore.getState().setPhaseArtifact(ticket_id, {
-            phase: ticket.activePhase,
+            phase: completedPhase,
             content,
             createdAt: new Date().toISOString(),
             agentId: agent_id,
           });
+
+          // If VALIDATE just completed: parse result + add summary node + maybe block
+          if (completedPhase === 'validate') {
+            const result = parseValidateResult(content);
+            useCanvasStore.getState().addValidateResultNode(result);
+            if (result.critical > 0) {
+              useTicketStore.getState().blockTicket(ticket_id);
+            }
+          }
         }
 
         // Advance to the next phase
         useTicketStore.getState().advanceTicketPhase(ticket_id);
+
+        // After advance: check if we've entered VALIDATE — auto-trigger
+        const updatedTicket = useTicketStore.getState().tickets.find((t) => t.id === ticket_id);
+        if (updatedTicket?.activePhase === 'validate') {
+          const planArtifact = updatedTicket.artifacts.plan;
+          if (planArtifact) {
+            try {
+              // Get build agent's worktree info
+              await useAgentStore.getState().refresh();
+              const buildAgent = useAgentStore.getState().agents.find((a) => a.id === agent_id);
+              const worktreePath = buildAgent?.worktree_path;
+
+              // Get git diff from the build worktree
+              const diff = await invoke<string>('get_worktree_diff', { agentId: agent_id });
+
+              // Get repo info from ticket assignment
+              const assignment = updatedTicket.assignments[0];
+              const project = useProjectStore
+                .getState()
+                .projects.find((p) => p.id === useProjectStore.getState().activeProjectId);
+              const repo =
+                project?.repos.find((r) => r.id === assignment?.repoId) ?? project?.repos[0];
+              const ghToken = useSecretsStore.getState().ghToken ?? '';
+
+              if (!repo) {
+                console.warn('[TicketCanvas] No repo found — cannot auto-trigger VALIDATE');
+                return;
+              }
+
+              // Build validate prompt: plan + diff
+              const validatePrompt = [
+                'Validate the following plan against the code changes.',
+                '',
+                '## Approved Plan',
+                planArtifact.content,
+                '',
+                '## Git Diff (code changes to validate)',
+                diff || '(no diff available)',
+              ].join('\n');
+
+              const systemPrompt = buildPrompt({
+                agentId: agent_id,
+                role: buildAgent?.role ?? 'qa',
+                personality: buildAgent?.personality ?? 'pragmatic',
+                projectName: project?.name ?? '',
+                projectStack: 'Rust, React 19, Tauri 2, TypeScript',
+                projectContext: '',
+                ticketNumber: 0,
+                ticketTitle: updatedTicket.title,
+                ticketDescription: updatedTicket.description,
+                ticketAcceptanceCriteria: updatedTicket.acceptanceCriteria,
+              });
+
+              await invoke<void>('start_agent', {
+                payload: {
+                  agent_id,
+                  ticket_id,
+                  ticket_slug: updatedTicket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
+                  prompt: validatePrompt,
+                  system_prompt: systemPrompt,
+                  repo_root: repo.repoRoot,
+                  gh_token: ghToken,
+                  resume_session_id: null,
+                  phase: 'validate',
+                  worktree_path_override: worktreePath ?? null,
+                },
+              });
+            } catch (err) {
+              console.error('[TicketCanvas] Failed to auto-trigger VALIDATE:', err);
+            }
+          }
+        }
       }
       // --- End phase lifecycle ---
 
