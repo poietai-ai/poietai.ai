@@ -131,9 +131,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
 
               if (!repo) {
                 console.warn('[TicketCanvas] No repo found — cannot auto-trigger VALIDATE');
-                return;
-              }
-
+              } else {
               // Build validate prompt: plan + diff
               const validatePrompt = [
                 'Validate the following plan against the code changes.',
@@ -175,6 +173,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
                   worktree_path_override: worktreePath ?? null,
                 },
               });
+              }
             } catch (err) {
               console.error('[TicketCanvas] Failed to auto-trigger VALIDATE:', err);
             }
@@ -204,9 +203,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
 
               if (!repo) {
                 console.warn('[TicketCanvas] No repo found — cannot auto-trigger QA');
-                return;
-              }
-
+              } else {
               // Build QA prompt: plan + diff
               const qaPrompt = [
                 'Review the following code changes for quality issues.',
@@ -246,6 +243,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
                   worktree_path_override: worktreePath ?? null,
                 },
               });
+              }
             } catch (err) {
               console.error('[TicketCanvas] Failed to auto-trigger QA:', err);
             }
