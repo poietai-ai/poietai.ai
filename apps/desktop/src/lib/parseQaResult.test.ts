@@ -69,11 +69,18 @@ describe('parseQaResult', () => {
     });
   });
 
-  it('uses parts[1] as description — pipe in description truncates at parts[1]', () => {
-    // With split('|'), "Use foo | bar instead" splits — parts[1] is "Use foo"
-    // This documents the known limitation: description is always parts[1] only
+  it('uses parts[1] as description, parts[2] as location', () => {
     const result = parseQaResult('WARNING | Use foo | src/x.ts:1');
     expect(result.lines[0].description).toBe('Use foo');
     expect(result.lines[0].location).toBe('src/x.ts:1');
+  });
+
+  it('location is undefined when trailing pipe produces empty parts[2]', () => {
+    const result = parseQaResult('CRITICAL | Missing tests |');
+    expect(result.lines[0]).toEqual({
+      type: 'critical',
+      description: 'Missing tests',
+      location: undefined,
+    });
   });
 });
