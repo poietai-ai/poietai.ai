@@ -11,6 +11,7 @@ import { useProjectStore } from '../../store/projectStore';
 import { useSecretsStore } from '../../store/secretsStore';
 import { buildPrompt } from '../../lib/promptBuilder';
 import { parseValidateResult } from '../../lib/parseValidateResult';
+import { parseQaResult } from '../../lib/parseQaResult';
 import { nodeTypes } from './nodes';
 import { AskUserOverlay } from './AskUserOverlay';
 import { AgentQuestionCard } from './AgentQuestionCard';
@@ -83,6 +84,16 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
           if (completedPhase === 'validate') {
             const result = parseValidateResult(content);
             useCanvasStore.getState().addValidateResultNode(result);
+            if (result.critical > 0) {
+              useTicketStore.getState().blockTicket(ticket_id);
+              wasBlocked = true;
+            }
+          }
+
+          // If QA just completed: parse result + add summary node + maybe block
+          if (completedPhase === 'qa') {
+            const result = parseQaResult(content);
+            useCanvasStore.getState().addQaResultNode(result);
             if (result.critical > 0) {
               useTicketStore.getState().blockTicket(ticket_id);
               wasBlocked = true;
@@ -166,6 +177,77 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
               });
             } catch (err) {
               console.error('[TicketCanvas] Failed to auto-trigger VALIDATE:', err);
+            }
+          }
+        }
+        // After advance: check if we've entered QA — auto-trigger
+        if (updatedTicket?.activePhase === 'qa') {
+          const planArtifact = updatedTicket.artifacts.plan;
+          if (planArtifact) {
+            try {
+              // Get build agent's worktree info (QA reuses BUILD agent identity via phase prompt)
+              await useAgentStore.getState().refresh();
+              const buildAgent = useAgentStore.getState().agents.find((a) => a.id === agent_id);
+              const worktreePath = buildAgent?.worktree_path;
+
+              // Get git diff from the build worktree
+              const diff = await invoke<string>('get_worktree_diff', { agentId: agent_id });
+
+              // Get repo info from ticket assignment
+              const assignment = updatedTicket.assignments[0];
+              const project = useProjectStore
+                .getState()
+                .projects.find((p) => p.id === useProjectStore.getState().activeProjectId);
+              const repo =
+                project?.repos.find((r) => r.id === assignment?.repoId) ?? project?.repos[0];
+              const ghToken = useSecretsStore.getState().ghToken ?? '';
+
+              if (!repo) {
+                console.warn('[TicketCanvas] No repo found — cannot auto-trigger QA');
+                return;
+              }
+
+              // Build QA prompt: plan + diff
+              const qaPrompt = [
+                'Review the following code changes for quality issues.',
+                '',
+                '## Approved Plan',
+                planArtifact.content,
+                '',
+                '## Git Diff (code changes to review)',
+                diff || '(no diff available)',
+              ].join('\n');
+
+              const systemPrompt = buildPrompt({
+                agentId: agent_id,
+                role: buildAgent?.role ?? 'qa',
+                personality: buildAgent?.personality ?? 'pragmatic',
+                projectName: project?.name ?? '',
+                projectStack: 'Rust, React 19, Tauri 2, TypeScript',
+                projectContext: '',
+                ticketNumber: 0,
+                ticketTitle: updatedTicket.title,
+                ticketDescription: updatedTicket.description,
+                ticketAcceptanceCriteria: updatedTicket.acceptanceCriteria,
+              });
+
+              await invoke<void>('start_agent', {
+                payload: {
+                  // Reuse the BUILD agent's id — QA runs as the same agent identity via phase prompt
+                  agent_id,
+                  ticket_id,
+                  ticket_slug: updatedTicket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
+                  prompt: qaPrompt,
+                  system_prompt: systemPrompt,
+                  repo_root: repo.repoRoot,
+                  gh_token: ghToken,
+                  resume_session_id: null,
+                  phase: 'qa',
+                  worktree_path_override: worktreePath ?? null,
+                },
+              });
+            } catch (err) {
+              console.error('[TicketCanvas] Failed to auto-trigger QA:', err);
             }
           }
         }
