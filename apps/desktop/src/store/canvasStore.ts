@@ -16,6 +16,12 @@ interface CanvasStore {
   initGhostGraph: (planArtifact: PlanArtifact) => void;
   addValidateResultNode: (summary: { verified: number; critical: number; advisory: number }) => void;
   addQaResultNode: (summary: { critical: number; warnings: number; advisory: number }) => void;
+  addSecurityResultNode: (summary: { critical: number; warnings: number }) => void;
+  addReviewSynthesisNode: (summary: {
+    validate: { critical: number; verified: number };
+    qa: { critical: number; warnings: number; advisory: number };
+    security: { critical: number; warnings: number };
+  }) => void;
   onNodesChange: (changes: NodeChange[]) => void;
   setAwaiting: (question: string, sessionId: string) => void;
   clearAwaiting: () => void;
@@ -320,6 +326,68 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       });
     }
 
+    set({ nodes: [...nodes, newNode], edges: newEdges });
+  },
+
+  addSecurityResultNode: (summary) => {
+    const { nodes, edges, activeTicketId } = get();
+    const nodeId = `security-result-${Date.now()}`;
+    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const newNode: Node<CanvasNodeData> = {
+      id: nodeId,
+      type: 'security_result' as CanvasNodeType,
+      position: { x: xPosition, y: 80 },
+      data: {
+        nodeType: 'security_result' as CanvasNodeType,
+        agentId: '',
+        ticketId: activeTicketId ?? '',
+        content: '',
+        securitySummary: summary,
+        items: [],
+      },
+    };
+    const newEdges = [...edges];
+    if (nodes.length > 0) {
+      const prevNode = [...nodes].reverse().find((n) => !n.data.isGhost) ?? nodes[nodes.length - 1];
+      newEdges.push({
+        id: `${prevNode.id}->${nodeId}`,
+        source: prevNode.id,
+        target: nodeId,
+        type: 'smoothstep',
+        style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
+      });
+    }
+    set({ nodes: [...nodes, newNode], edges: newEdges });
+  },
+
+  addReviewSynthesisNode: (summary) => {
+    const { nodes, edges, activeTicketId } = get();
+    const nodeId = `review-synthesis-${Date.now()}`;
+    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const newNode: Node<CanvasNodeData> = {
+      id: nodeId,
+      type: 'review_synthesis' as CanvasNodeType,
+      position: { x: xPosition, y: 80 },
+      data: {
+        nodeType: 'review_synthesis' as CanvasNodeType,
+        agentId: '',
+        ticketId: activeTicketId ?? '',
+        content: '',
+        synthesisSummary: summary,
+        items: [],
+      },
+    };
+    const newEdges = [...edges];
+    if (nodes.length > 0) {
+      const prevNode = [...nodes].reverse().find((n) => !n.data.isGhost) ?? nodes[nodes.length - 1];
+      newEdges.push({
+        id: `${prevNode.id}->${nodeId}`,
+        source: prevNode.id,
+        target: nodeId,
+        type: 'smoothstep',
+        style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
+      });
+    }
     set({ nodes: [...nodes, newNode], edges: newEdges });
   },
 

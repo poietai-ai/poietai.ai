@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { useCanvasStore } from './canvasStore';
 import type { PlanArtifact } from '../types/planArtifact';
 
@@ -266,6 +267,84 @@ describe('addQaResultNode', () => {
       activeTicketId: 'ticket-1',
     });
     useCanvasStore.getState().addQaResultNode({ critical: 0, warnings: 0, advisory: 0 });
+    const { edges } = useCanvasStore.getState();
+    expect(edges).toHaveLength(1);
+    expect(edges[0].source).toBe('prev');
+  });
+});
+
+describe('addSecurityResultNode', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({ nodes: [], edges: [], activeTicketId: 'ticket-1' });
+  });
+
+  it('adds a security_result node to an empty canvas', () => {
+    const summary = { critical: 1, warnings: 2 };
+    act(() => useCanvasStore.getState().addSecurityResultNode(summary));
+    const { nodes } = useCanvasStore.getState();
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].type).toBe('security_result');
+    expect(nodes[0].data.nodeType).toBe('security_result');
+    expect(nodes[0].data.securitySummary).toEqual(summary);
+    expect(nodes[0].data.ticketId).toBe('ticket-1');
+  });
+
+  it('adds an edge from the last non-ghost node', () => {
+    useCanvasStore.setState({
+      nodes: [
+        {
+          id: 'prev',
+          type: 'agent_message',
+          position: { x: 0, y: 80 },
+          data: { nodeType: 'agent_message', agentId: 'a1', ticketId: 'ticket-1', content: 'hi' },
+        },
+      ],
+      edges: [],
+      activeTicketId: 'ticket-1',
+    });
+    act(() => useCanvasStore.getState().addSecurityResultNode({ critical: 0, warnings: 0 }));
+    const { edges } = useCanvasStore.getState();
+    expect(edges).toHaveLength(1);
+    expect(edges[0].source).toBe('prev');
+  });
+});
+
+describe('addReviewSynthesisNode', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({ nodes: [], edges: [], activeTicketId: 'ticket-1' });
+  });
+
+  it('adds a review_synthesis node with synthesisSummary', () => {
+    const summary = {
+      validate: { critical: 0, verified: 5 },
+      qa: { critical: 0, warnings: 1, advisory: 2 },
+      security: { critical: 0, warnings: 0 },
+    };
+    act(() => useCanvasStore.getState().addReviewSynthesisNode(summary));
+    const { nodes } = useCanvasStore.getState();
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].type).toBe('review_synthesis');
+    expect(nodes[0].data.synthesisSummary).toEqual(summary);
+  });
+
+  it('adds an edge from the last non-ghost node', () => {
+    useCanvasStore.setState({
+      nodes: [
+        {
+          id: 'prev',
+          type: 'security_result',
+          position: { x: 0, y: 80 },
+          data: { nodeType: 'security_result', agentId: '', ticketId: 'ticket-1', content: '' },
+        },
+      ],
+      edges: [],
+      activeTicketId: 'ticket-1',
+    });
+    act(() => useCanvasStore.getState().addReviewSynthesisNode({
+      validate: { critical: 0, verified: 0 },
+      qa: { critical: 0, warnings: 0, advisory: 0 },
+      security: { critical: 0, warnings: 0 },
+    }));
     const { edges } = useCanvasStore.getState();
     expect(edges).toHaveLength(1);
     expect(edges[0].source).toBe('prev');

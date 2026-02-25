@@ -12,6 +12,7 @@ import { useSecretsStore } from '../../store/secretsStore';
 import { buildPrompt } from '../../lib/promptBuilder';
 import { parseValidateResult } from '../../lib/parseValidateResult';
 import { parseQaResult } from '../../lib/parseQaResult';
+import { parseSecurityResult } from '../../lib/parseSecurityResult';
 import { nodeTypes } from './nodes';
 import { AskUserOverlay } from './AskUserOverlay';
 import { AgentQuestionCard } from './AgentQuestionCard';
@@ -99,6 +100,27 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
               wasBlocked = true;
             }
           }
+
+          // If SECURITY just completed: parse result + add summary node + synthesis + maybe block
+          if (completedPhase === 'security') {
+            const secResult = parseSecurityResult(content);
+            useCanvasStore.getState().addSecurityResultNode(secResult);
+
+            // Gather summaries from existing canvas nodes for the synthesis card
+            const latestNodes = useCanvasStore.getState().nodes;
+            const validateNode = latestNodes.find((n) => n.type === 'validate_result');
+            const qaNode = latestNodes.find((n) => n.type === 'qa_result');
+            useCanvasStore.getState().addReviewSynthesisNode({
+              validate: validateNode?.data.validateSummary ?? { critical: 0, verified: 0 },
+              qa: qaNode?.data.qaSummary ?? { critical: 0, warnings: 0, advisory: 0 },
+              security: secResult,
+            });
+
+            if (secResult.critical > 0) {
+              useTicketStore.getState().blockTicket(ticket_id);
+              wasBlocked = true;
+            }
+          }
         }
 
         // Advance to the next phase only if not blocked by critical mismatches
@@ -108,7 +130,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
 
         // After advance: check if we've entered VALIDATE — auto-trigger
         const updatedTicket = useTicketStore.getState().tickets.find((t) => t.id === ticket_id);
-        if (updatedTicket?.activePhase === 'validate') {
+        if (!wasBlocked && updatedTicket?.activePhase === 'validate') {
           const planArtifact = updatedTicket.artifacts.plan;
           if (planArtifact) {
             try {
@@ -180,7 +202,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
           }
         }
         // After advance: check if we've entered QA — auto-trigger
-        if (updatedTicket?.activePhase === 'qa') {
+        if (!wasBlocked && updatedTicket?.activePhase === 'qa') {
           const planArtifact = updatedTicket.artifacts.plan;
           if (planArtifact) {
             try {
@@ -246,6 +268,76 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
               }
             } catch (err) {
               console.error('[TicketCanvas] Failed to auto-trigger QA:', err);
+            }
+          }
+        }
+        // After advance: check if we've entered SECURITY — auto-trigger
+        if (!wasBlocked && updatedTicket?.activePhase === 'security') {
+          const planArtifact = updatedTicket.artifacts.plan;
+          if (planArtifact) {
+            try {
+              // Get build agent's worktree info (SECURITY reuses BUILD agent identity via phase prompt)
+              await useAgentStore.getState().refresh();
+              const buildAgent = useAgentStore.getState().agents.find((a) => a.id === agent_id);
+              const worktreePath = buildAgent?.worktree_path;
+
+              // Get git diff from the build worktree
+              const diff = await invoke<string>('get_worktree_diff', { agentId: agent_id });
+
+              // Get repo info from ticket assignment
+              const assignment = updatedTicket.assignments[0];
+              const project = useProjectStore
+                .getState()
+                .projects.find((p) => p.id === useProjectStore.getState().activeProjectId);
+              const repo =
+                project?.repos.find((r) => r.id === assignment?.repoId) ?? project?.repos[0];
+              const ghToken = useSecretsStore.getState().ghToken ?? '';
+
+              if (!repo) {
+                console.warn('[TicketCanvas] No repo found — cannot auto-trigger SECURITY');
+              } else {
+                // Build security prompt: plan + diff
+                const securityPrompt = [
+                  'Review the following code changes for security vulnerabilities.',
+                  '',
+                  '## Approved Plan',
+                  planArtifact.content,
+                  '',
+                  '## Git Diff (code changes to review)',
+                  diff || '(no diff available)',
+                ].join('\n');
+
+                const systemPrompt = buildPrompt({
+                  agentId: agent_id,
+                  role: buildAgent?.role ?? 'security',
+                  personality: buildAgent?.personality ?? 'pragmatic',
+                  projectName: project?.name ?? '',
+                  projectStack: 'Rust, React 19, Tauri 2, TypeScript',
+                  projectContext: '',
+                  ticketNumber: 0,
+                  ticketTitle: updatedTicket.title,
+                  ticketDescription: updatedTicket.description,
+                  ticketAcceptanceCriteria: updatedTicket.acceptanceCriteria,
+                });
+
+                await invoke<void>('start_agent', {
+                  payload: {
+                    // Reuse the BUILD agent's id — SECURITY runs as the same agent identity via phase prompt
+                    agent_id,
+                    ticket_id,
+                    ticket_slug: updatedTicket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
+                    prompt: securityPrompt,
+                    system_prompt: systemPrompt,
+                    repo_root: repo.repoRoot,
+                    gh_token: ghToken,
+                    resume_session_id: null,
+                    phase: 'security',
+                    worktree_path_override: worktreePath ?? null,
+                  },
+                });
+              }
+            } catch (err) {
+              console.error('[TicketCanvas] Failed to auto-trigger SECURITY:', err);
             }
           }
         }
