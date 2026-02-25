@@ -132,47 +132,47 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
               if (!repo) {
                 console.warn('[TicketCanvas] No repo found — cannot auto-trigger VALIDATE');
               } else {
-              // Build validate prompt: plan + diff
-              const validatePrompt = [
-                'Validate the following plan against the code changes.',
-                '',
-                '## Approved Plan',
-                planArtifact.content,
-                '',
-                '## Git Diff (code changes to validate)',
-                diff || '(no diff available)',
-              ].join('\n');
+                // Build validate prompt: plan + diff
+                const validatePrompt = [
+                  'Validate the following plan against the code changes.',
+                  '',
+                  '## Approved Plan',
+                  planArtifact.content,
+                  '',
+                  '## Git Diff (code changes to validate)',
+                  diff || '(no diff available)',
+                ].join('\n');
 
-              const systemPrompt = buildPrompt({
-                agentId: agent_id,
-                role: buildAgent?.role ?? 'qa',
-                personality: buildAgent?.personality ?? 'pragmatic',
-                projectName: project?.name ?? '',
-                projectStack: 'Rust, React 19, Tauri 2, TypeScript',
-                projectContext: '',
-                ticketNumber: 0,
-                ticketTitle: updatedTicket.title,
-                ticketDescription: updatedTicket.description,
-                ticketAcceptanceCriteria: updatedTicket.acceptanceCriteria,
-              });
+                const systemPrompt = buildPrompt({
+                  agentId: agent_id,
+                  role: buildAgent?.role ?? 'qa',
+                  personality: buildAgent?.personality ?? 'pragmatic',
+                  projectName: project?.name ?? '',
+                  projectStack: 'Rust, React 19, Tauri 2, TypeScript',
+                  projectContext: '',
+                  ticketNumber: 0,
+                  ticketTitle: updatedTicket.title,
+                  ticketDescription: updatedTicket.description,
+                  ticketAcceptanceCriteria: updatedTicket.acceptanceCriteria,
+                });
 
-              await invoke<void>('start_agent', {
-                payload: {
-                  // Reuse the BUILD agent's id — the validate agent runs as the same agent
-                  // identity. This is intentional: the agent switches roles via the phase
-                  // prompt rather than being a separate roster entry.
-                  agent_id,
-                  ticket_id,
-                  ticket_slug: updatedTicket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
-                  prompt: validatePrompt,
-                  system_prompt: systemPrompt,
-                  repo_root: repo.repoRoot,
-                  gh_token: ghToken,
-                  resume_session_id: null,
-                  phase: 'validate',
-                  worktree_path_override: worktreePath ?? null,
-                },
-              });
+                await invoke<void>('start_agent', {
+                  payload: {
+                    // Reuse the BUILD agent's id — the validate agent runs as the same agent
+                    // identity. This is intentional: the agent switches roles via the phase
+                    // prompt rather than being a separate roster entry.
+                    agent_id,
+                    ticket_id,
+                    ticket_slug: updatedTicket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
+                    prompt: validatePrompt,
+                    system_prompt: systemPrompt,
+                    repo_root: repo.repoRoot,
+                    gh_token: ghToken,
+                    resume_session_id: null,
+                    phase: 'validate',
+                    worktree_path_override: worktreePath ?? null,
+                  },
+                });
               }
             } catch (err) {
               console.error('[TicketCanvas] Failed to auto-trigger VALIDATE:', err);
@@ -204,45 +204,45 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
               if (!repo) {
                 console.warn('[TicketCanvas] No repo found — cannot auto-trigger QA');
               } else {
-              // Build QA prompt: plan + diff
-              const qaPrompt = [
-                'Review the following code changes for quality issues.',
-                '',
-                '## Approved Plan',
-                planArtifact.content,
-                '',
-                '## Git Diff (code changes to review)',
-                diff || '(no diff available)',
-              ].join('\n');
+                // Build QA prompt: plan + diff
+                const qaPrompt = [
+                  'Review the following code changes for quality issues.',
+                  '',
+                  '## Approved Plan',
+                  planArtifact.content,
+                  '',
+                  '## Git Diff (code changes to review)',
+                  diff || '(no diff available)',
+                ].join('\n');
 
-              const systemPrompt = buildPrompt({
-                agentId: agent_id,
-                role: buildAgent?.role ?? 'qa',
-                personality: buildAgent?.personality ?? 'pragmatic',
-                projectName: project?.name ?? '',
-                projectStack: 'Rust, React 19, Tauri 2, TypeScript',
-                projectContext: '',
-                ticketNumber: 0,
-                ticketTitle: updatedTicket.title,
-                ticketDescription: updatedTicket.description,
-                ticketAcceptanceCriteria: updatedTicket.acceptanceCriteria,
-              });
+                const systemPrompt = buildPrompt({
+                  agentId: agent_id,
+                  role: buildAgent?.role ?? 'qa',
+                  personality: buildAgent?.personality ?? 'pragmatic',
+                  projectName: project?.name ?? '',
+                  projectStack: 'Rust, React 19, Tauri 2, TypeScript',
+                  projectContext: '',
+                  ticketNumber: 0,
+                  ticketTitle: updatedTicket.title,
+                  ticketDescription: updatedTicket.description,
+                  ticketAcceptanceCriteria: updatedTicket.acceptanceCriteria,
+                });
 
-              await invoke<void>('start_agent', {
-                payload: {
-                  // Reuse the BUILD agent's id — QA runs as the same agent identity via phase prompt
-                  agent_id,
-                  ticket_id,
-                  ticket_slug: updatedTicket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
-                  prompt: qaPrompt,
-                  system_prompt: systemPrompt,
-                  repo_root: repo.repoRoot,
-                  gh_token: ghToken,
-                  resume_session_id: null,
-                  phase: 'qa',
-                  worktree_path_override: worktreePath ?? null,
-                },
-              });
+                await invoke<void>('start_agent', {
+                  payload: {
+                    // Reuse the BUILD agent's id — QA runs as the same agent identity via phase prompt
+                    agent_id,
+                    ticket_id,
+                    ticket_slug: updatedTicket.title.toLowerCase().replace(/\s+/g, '-').slice(0, 50),
+                    prompt: qaPrompt,
+                    system_prompt: systemPrompt,
+                    repo_root: repo.repoRoot,
+                    gh_token: ghToken,
+                    resume_session_id: null,
+                    phase: 'qa',
+                    worktree_path_override: worktreePath ?? null,
+                  },
+                });
               }
             } catch (err) {
               console.error('[TicketCanvas] Failed to auto-trigger QA:', err);
