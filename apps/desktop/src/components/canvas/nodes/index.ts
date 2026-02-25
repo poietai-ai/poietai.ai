@@ -5,6 +5,8 @@ import { AwaitingNode } from './AwaitingNode';
 import { PlanTaskNode } from './PlanTaskNode';
 import { ValidateResultNode } from './ValidateResultNode';
 import { QaResultNode } from './QaResultNode';
+import { SecurityResultNode } from './SecurityResultNode';
+import { ReviewSynthesisNode } from './ReviewSynthesisNode';
 
 // Maps node type strings (from Zustand) to React components.
 // Passed to ReactFlow as the `nodeTypes` prop.
@@ -19,4 +21,6 @@ export const nodeTypes = {
   plan_task: PlanTaskNode,
   validate_result: ValidateResultNode,
   qa_result: QaResultNode,
+  security_result: SecurityResultNode,
+  review_synthesis: ReviewSynthesisNode,
 } as const;

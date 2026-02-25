@@ -32,7 +32,9 @@ export type CanvasNodeType =
   | 'ci_review'
   | 'plan_task'
   | 'validate_result'
-  | 'qa_result';
+  | 'qa_result'
+  | 'security_result'
+  | 'review_synthesis';
 
 export interface CanvasNodeData extends Record<string, unknown> {
   nodeType: CanvasNodeType;
@@ -55,6 +57,14 @@ export interface CanvasNodeData extends Record<string, unknown> {
   validateSummary?: { verified: number; critical: number; advisory: number };
   // M4: QA result summary
   qaSummary?: { critical: number; warnings: number; advisory: number };
+  // M5: security result summary
+  securitySummary?: { critical: number; warnings: number };
+  // M5: review synthesis summary
+  synthesisSummary?: {
+    validate: { critical: number; verified: number };
+    qa: { critical: number; warnings: number; advisory: number };
+    security: { critical: number; warnings: number };
+  };
 }
 
 // Full node type for use in NodeProps — wraps CanvasNodeData in @xyflow/react's Node shape.
