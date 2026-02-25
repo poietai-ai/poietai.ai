@@ -15,6 +15,7 @@ interface CanvasStore {
   addNodeFromEvent: (payload: CanvasNodePayload) => void;
   initGhostGraph: (planArtifact: PlanArtifact) => void;
   addValidateResultNode: (summary: { verified: number; critical: number; advisory: number }) => void;
+  addQaResultNode: (summary: { critical: number; warnings: number; advisory: number }) => void;
   onNodesChange: (changes: NodeChange[]) => void;
   setAwaiting: (question: string, sessionId: string) => void;
   clearAwaiting: () => void;
@@ -269,6 +270,40 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         ticketId: activeTicketId ?? '',
         content: '',
         validateSummary: summary,
+        items: [],
+      },
+    };
+
+    const newEdges = [...edges];
+    if (nodes.length > 0) {
+      const prevNode = [...nodes].reverse().find((n) => !n.data.isGhost) ?? nodes[nodes.length - 1];
+      newEdges.push({
+        id: `${prevNode.id}->${nodeId}`,
+        source: prevNode.id,
+        target: nodeId,
+        type: 'smoothstep',
+        style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
+      });
+    }
+
+    set({ nodes: [...nodes, newNode], edges: newEdges });
+  },
+
+  addQaResultNode: (summary) => {
+    const { nodes, edges, activeTicketId } = get();
+    const nodeId = `qa-result-${Date.now()}`;
+    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+
+    const newNode: Node<CanvasNodeData> = {
+      id: nodeId,
+      type: 'qa_result' as CanvasNodeType,
+      position: { x: xPosition, y: 80 },
+      data: {
+        nodeType: 'qa_result' as CanvasNodeType,
+        agentId: '',
+        ticketId: activeTicketId ?? '',
+        content: '',
+        qaSummary: summary,
         items: [],
       },
     };

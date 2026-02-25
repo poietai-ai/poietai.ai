@@ -235,3 +235,39 @@ describe('ghost node activation on file edit', () => {
     expect(planNode?.data.isGhost).toBe(true);
   });
 });
+
+describe('addQaResultNode', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({ nodes: [], edges: [], activeTicketId: 'ticket-1' });
+  });
+
+  it('adds a qa_result node to an empty canvas', () => {
+    const summary = { critical: 1, warnings: 2, advisory: 3 };
+    useCanvasStore.getState().addQaResultNode(summary);
+    const { nodes } = useCanvasStore.getState();
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].type).toBe('qa_result');
+    expect(nodes[0].data.nodeType).toBe('qa_result');
+    expect(nodes[0].data.qaSummary).toEqual(summary);
+    expect(nodes[0].data.ticketId).toBe('ticket-1');
+  });
+
+  it('adds an edge from the last non-ghost node', () => {
+    useCanvasStore.setState({
+      nodes: [
+        {
+          id: 'prev',
+          type: 'agent_message',
+          position: { x: 0, y: 80 },
+          data: { nodeType: 'agent_message', agentId: 'a1', ticketId: 'ticket-1', content: 'hello' },
+        },
+      ],
+      edges: [],
+      activeTicketId: 'ticket-1',
+    });
+    useCanvasStore.getState().addQaResultNode({ critical: 0, warnings: 0, advisory: 0 });
+    const { edges } = useCanvasStore.getState();
+    expect(edges).toHaveLength(1);
+    expect(edges[0].source).toBe('prev');
+  });
+});
