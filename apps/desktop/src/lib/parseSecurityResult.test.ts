@@ -76,4 +76,13 @@ describe('parseSecurityResult', () => {
     const result = parseSecurityResult('CRITICAL | OWASP A02 | Sensitive data exposure |');
     expect(result.lines[0].location).toBeUndefined();
   });
+
+  it('location is undefined for WARNING when trailing pipe produces empty parts[2]', () => {
+    const result = parseSecurityResult('WARNING | Hardcoded API key |');
+    expect(result.lines[0]).toEqual({
+      type: 'warning',
+      description: 'Hardcoded API key',
+      location: undefined,
+    });
+  });
 });
