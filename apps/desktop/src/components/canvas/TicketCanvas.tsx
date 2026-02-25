@@ -130,7 +130,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
 
         // After advance: check if we've entered VALIDATE — auto-trigger
         const updatedTicket = useTicketStore.getState().tickets.find((t) => t.id === ticket_id);
-        if (updatedTicket?.activePhase === 'validate') {
+        if (!wasBlocked && updatedTicket?.activePhase === 'validate') {
           const planArtifact = updatedTicket.artifacts.plan;
           if (planArtifact) {
             try {
@@ -202,7 +202,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
           }
         }
         // After advance: check if we've entered QA — auto-trigger
-        if (updatedTicket?.activePhase === 'qa') {
+        if (!wasBlocked && updatedTicket?.activePhase === 'qa') {
           const planArtifact = updatedTicket.artifacts.plan;
           if (planArtifact) {
             try {
@@ -272,7 +272,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
           }
         }
         // After advance: check if we've entered SECURITY — auto-trigger
-        if (updatedTicket?.activePhase === 'security') {
+        if (!wasBlocked && updatedTicket?.activePhase === 'security') {
           const planArtifact = updatedTicket.artifacts.plan;
           if (planArtifact) {
             try {
