@@ -1,6 +1,7 @@
 import {
   LayoutDashboard, Hash, Columns3, GitBranch, Inbox, Settings2,
 } from 'lucide-react';
+import { useMessageStore } from '../../store/messageStore';
 
 const navItems = [
   { label: 'Dashboard', Icon: LayoutDashboard, id: 'dashboard' },
@@ -17,6 +18,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ activeView, onNavigate, onSettings }: SidebarProps) {
+  const totalUnread = useMessageStore((s) => s.totalUnread());
+
   return (
     <aside className="w-16 flex flex-col items-center py-4 gap-2 bg-zinc-950 border-r border-zinc-800">
       <div className="mb-4 w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center">
@@ -27,7 +30,7 @@ export function Sidebar({ activeView, onNavigate, onSettings }: SidebarProps) {
           key={id}
           type="button"
           onClick={() => onNavigate(id)}
-          className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
+          className={`relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors ${
             activeView === id
               ? 'bg-violet-600 text-white'
               : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
@@ -35,6 +38,11 @@ export function Sidebar({ activeView, onNavigate, onSettings }: SidebarProps) {
           title={label}
         >
           <Icon size={18} strokeWidth={1.5} />
+          {id === 'messages' && totalUnread > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 bg-violet-600 text-white text-[9px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-bold px-1">
+              {totalUnread > 99 ? '99+' : totalUnread}
+            </span>
+          )}
         </button>
       ))}
       <div className="flex-1" />
