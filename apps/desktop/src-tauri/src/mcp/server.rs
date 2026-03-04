@@ -228,6 +228,28 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                             },
                             "required": ["question", "choices", "agent_id"]
                         }
+                    },
+                    {
+                        "name": "confirm_action",
+                        "description": "Request approval before a major or irreversible action. Shows the user what you're about to do and waits for Approve/Reject.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "description": "What you're about to do, e.g. 'Create PR #42' or 'Refactor auth module'"
+                                },
+                                "details": {
+                                    "type": "string",
+                                    "description": "Details/preview of the action"
+                                },
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID"
+                                }
+                            },
+                            "required": ["action", "agent_id"]
+                        }
                     }
                 ]
             }
@@ -361,6 +383,60 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                     }
                 }
 
+                "confirm_action" => {
+                    let action = args.get("action")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let details = args.get("details")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let agent_id = args.get("agent_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    let (tx, rx) = oneshot::channel::<String>();
+                    {
+                        let mut pending = state.pending_questions.lock().await;
+                        pending.insert(agent_id.clone(), tx);
+                    }
+
+                    let _ = state.app.emit("agent-confirm", json!({
+                        "agent_id": agent_id,
+                        "action": action,
+                        "details": details,
+                    }));
+
+                    match tokio::time::timeout(Duration::from_secs(600), rx).await {
+                        Ok(Ok(reply)) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": reply }],
+                                "isError": false
+                            }
+                        })),
+                        Ok(Err(_)) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": "Error: connection lost" }],
+                                "isError": true
+                            }
+                        })),
+                        Err(_) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": "Timed out waiting for confirmation" }],
+                                "isError": true
+                            }
+                        })),
+                    }
+                }
+
                 _ => Some(json!({
                     "jsonrpc": "2.0",
                     "id": id,
@@ -433,6 +509,19 @@ mod tests {
                             },
                             "required": ["question", "choices", "agent_id"]
                         }
+                    },
+                    {
+                        "name": "confirm_action",
+                        "description": "Request approval before a major or irreversible action.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "action": { "type": "string" },
+                                "details": { "type": "string" },
+                                "agent_id": { "type": "string" }
+                            },
+                            "required": ["action", "agent_id"]
+                        }
                     }
                 ]
             }
@@ -455,7 +544,7 @@ mod tests {
     fn tools_list_contains_ask_human() {
         let resp = tools_list_response(json!(2));
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 4);
         assert_eq!(tools[0]["name"], "ask_human");
     }
 
@@ -486,6 +575,21 @@ mod tests {
         assert!(required_strs.contains(&"question"));
         assert!(required_strs.contains(&"choices"));
         assert!(required_strs.contains(&"agent_id"));
+    }
+
+    #[test]
+    fn tools_list_contains_confirm_action() {
+        let resp = tools_list_response(json!(2));
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools[3]["name"], "confirm_action");
+        let required = tools[3]["inputSchema"]["required"]
+            .as_array()
+            .unwrap();
+        let required_strs: Vec<&str> =
+            required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_strs.contains(&"action"));
+        assert!(required_strs.contains(&"agent_id"));
+        assert!(!required_strs.contains(&"details"));
     }
 
     #[test]
