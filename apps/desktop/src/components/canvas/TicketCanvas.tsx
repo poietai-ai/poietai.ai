@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { ReactFlow, Background, Controls, BackgroundVariant } from '@xyflow/react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
@@ -9,15 +9,16 @@ import { useTicketStore } from '../../store/ticketStore';
 import { useAgentStore } from '../../store/agentStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useSecretsStore } from '../../store/secretsStore';
+import { useConversationStore } from '../../store/conversationStore';
 import { buildPrompt } from '../../lib/promptBuilder';
 import { parseValidateResult } from '../../lib/parseValidateResult';
 import { parseQaResult } from '../../lib/parseQaResult';
 import { parseSecurityResult } from '../../lib/parseSecurityResult';
 import { nodeTypes } from './nodes';
 import { AskUserOverlay } from './AskUserOverlay';
-import { AgentQuestionCard } from './AgentQuestionCard';
+import { ConversationPanel } from './ConversationPanel';
 import { PhaseBreadcrumb } from './PhaseBreadcrumb';
-import type { CanvasNodePayload, AgentQuestionPayload } from '../../types/canvas';
+import type { CanvasNodePayload, AgentQuestionPayload, AgentChoicesPayload, AgentStatusPayload, AgentConfirmPayload } from '../../types/canvas';
 
 interface AgentResultPayload {
   agent_id: string;
@@ -39,9 +40,6 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
   } = useCanvasStore();
 
   const ticket = useTicketStore((s) => s.tickets.find((t) => t.id === ticketId));
-
-  // Active mid-task questions from ask_human MCP calls (agent stays running)
-  const [activeQuestions, setActiveQuestions] = useState<AgentQuestionPayload[]>([]);
 
   useEffect(() => {
     setActiveTicket(ticketId);
@@ -363,18 +361,64 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
   // Listen for mid-task questions from ask_human MCP calls (agent is still running)
   useEffect(() => {
     const unlisten = listen<AgentQuestionPayload>('agent-question', (event) => {
-      setActiveQuestions((prev) => {
-        // Deduplicate by agent_id — replace if already asking
-        const filtered = prev.filter((q) => q.agent_id !== event.payload.agent_id);
-        return [...filtered, event.payload];
+      useConversationStore.getState().addMessage({
+        ticketId: ticketId,
+        agentId: event.payload.agent_id,
+        agentName: event.payload.agent_id,
+        type: 'agent_question',
+        content: event.payload.question,
       });
     });
     return () => { unlisten.then((fn) => fn()); };
-  }, []);
+  }, [ticketId]);
 
-  const handleQuestionAnswered = (agentId: string) => {
-    setActiveQuestions((prev) => prev.filter((q) => q.agent_id !== agentId));
-  };
+  // Listen for status updates (non-blocking)
+  useEffect(() => {
+    const unlisten = listen<AgentStatusPayload>('agent-status', (event) => {
+      const { agent_id, message } = event.payload;
+      useCanvasStore.getState().addStatusUpdateNode(agent_id, message);
+      useConversationStore.getState().addMessage({
+        ticketId: ticketId,
+        agentId: agent_id,
+        agentName: agent_id,
+        type: 'agent_status',
+        content: message,
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [ticketId]);
+
+  // Listen for choices (blocking — user must pick)
+  useEffect(() => {
+    const unlisten = listen<AgentChoicesPayload>('agent-choices', (event) => {
+      const { agent_id, question, choices } = event.payload;
+      useConversationStore.getState().addMessage({
+        ticketId: ticketId,
+        agentId: agent_id,
+        agentName: agent_id,
+        type: 'agent_choices',
+        content: question,
+        choices,
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [ticketId]);
+
+  // Listen for confirmation requests (blocking — user must approve/reject)
+  useEffect(() => {
+    const unlisten = listen<AgentConfirmPayload>('agent-confirm', (event) => {
+      const { agent_id, action, details } = event.payload;
+      useConversationStore.getState().addMessage({
+        ticketId: ticketId,
+        agentId: agent_id,
+        agentName: agent_id,
+        type: 'agent_confirm',
+        content: action,
+        actionDetails: details,
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [ticketId]);
 
   const lastNode = nodes.length > 0 ? nodes[nodes.length - 1] : null;
   const agentId = lastNode ? String(lastNode.data.agentId ?? '') : '';
@@ -403,18 +447,8 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
           <Controls />
         </ReactFlow>
 
-        {/* Mid-task questions — agent is still running, waiting for reply */}
-        {activeQuestions.length > 0 && (
-          <div className="absolute bottom-4 left-4 right-4 flex flex-col gap-2 pointer-events-auto">
-            {activeQuestions.map((q) => (
-              <AgentQuestionCard
-                key={q.agent_id}
-                payload={q}
-                onAnswered={handleQuestionAnswered}
-              />
-            ))}
-          </div>
-        )}
+        {/* Conversation panel — persistent sidebar for all agent-user interactions */}
+        <ConversationPanel ticketId={ticketId} />
 
         {/* End-of-run question — agent exited, will resume via --resume */}
         {awaitingQuestion && awaitingSessionId && (
