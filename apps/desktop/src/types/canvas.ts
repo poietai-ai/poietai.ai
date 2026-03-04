@@ -34,7 +34,8 @@ export type CanvasNodeType =
   | 'validate_result'
   | 'qa_result'
   | 'security_result'
-  | 'review_synthesis';
+  | 'review_synthesis'
+  | 'status_update';
 
 export interface CanvasNodeData extends Record<string, unknown> {
   nodeType: CanvasNodeType;
@@ -75,4 +76,24 @@ export type CanvasNode = Node<CanvasNodeData>;
 export interface AgentQuestionPayload {
   agent_id: string;
   question: string;
+}
+
+/// Emitted by MCP server when agent calls present_choices.
+export interface AgentChoicesPayload {
+  agent_id: string;
+  question: string;
+  choices: { label: string; description: string }[];
+}
+
+/// Emitted by MCP server when agent calls status_update.
+export interface AgentStatusPayload {
+  agent_id: string;
+  message: string;
+}
+
+/// Emitted by MCP server when agent calls confirm_action.
+export interface AgentConfirmPayload {
+  agent_id: string;
+  action: string;
+  details?: string;
 }
