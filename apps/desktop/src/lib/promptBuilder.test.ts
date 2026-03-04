@@ -89,6 +89,48 @@ describe('personality-specific interaction coaching', () => {
   });
 });
 
+describe('phase interaction guidance', () => {
+  it('includes high-interaction guidance for BRIEF phase', () => {
+    const prompt = buildPrompt({ ...base, phase: 'brief' });
+    expect(prompt).toContain('Ask frequently');
+  });
+
+  it('includes medium-interaction guidance for DESIGN phase', () => {
+    const prompt = buildPrompt({ ...base, phase: 'design' });
+    expect(prompt).toContain('architectural');
+  });
+
+  it('includes low-interaction guidance for BUILD phase', () => {
+    const prompt = buildPrompt({ ...base, phase: 'build' });
+    expect(prompt).toContain('sparingly');
+  });
+
+  it('includes plan-phase guidance for PLAN phase', () => {
+    const prompt = buildPrompt({ ...base, phase: 'plan' });
+    expect(prompt).toContain('task breakdown');
+  });
+
+  it('includes minimal-interaction guidance for VALIDATE phase', () => {
+    const prompt = buildPrompt({ ...base, phase: 'validate' });
+    expect(prompt).toContain('Minimal');
+  });
+
+  it('includes minimal-interaction guidance for QA phase', () => {
+    const prompt = buildPrompt({ ...base, phase: 'qa' });
+    expect(prompt).toContain('Minimal');
+  });
+
+  it('includes minimal-interaction guidance for SECURITY phase', () => {
+    const prompt = buildPrompt({ ...base, phase: 'security' });
+    expect(prompt).toContain('Minimal');
+  });
+
+  it('omits phase section when phase is undefined', () => {
+    const prompt = buildPrompt({ ...base });
+    expect(prompt).not.toContain('Phase:');
+  });
+});
+
 describe('buildPrompt with planContent', () => {
   it('uses plan as ticket section instead of description when planContent is provided', () => {
     const prompt = buildPrompt({

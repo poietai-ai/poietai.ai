@@ -58,6 +58,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
       ticketDescription: ticket.description,
       ticketAcceptanceCriteria: ticket.acceptanceCriteria,
       planContent,
+      phase: ticket.activePhase,
     });
 
     const ghToken = useSecretsStore.getState().ghToken ?? '';

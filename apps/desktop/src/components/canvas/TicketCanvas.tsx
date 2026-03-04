@@ -176,6 +176,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
                   ticketTitle: updatedTicket.title,
                   ticketDescription: updatedTicket.description,
                   ticketAcceptanceCriteria: updatedTicket.acceptanceCriteria,
+                  phase: updatedTicket.activePhase,
                 });
 
                 await invoke<void>('start_agent', {
@@ -248,6 +249,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
                   ticketTitle: updatedTicket.title,
                   ticketDescription: updatedTicket.description,
                   ticketAcceptanceCriteria: updatedTicket.acceptanceCriteria,
+                  phase: updatedTicket.activePhase,
                 });
 
                 await invoke<void>('start_agent', {
@@ -318,6 +320,7 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
                   ticketTitle: updatedTicket.title,
                   ticketDescription: updatedTicket.description,
                   ticketAcceptanceCriteria: updatedTicket.acceptanceCriteria,
+                  phase: updatedTicket.activePhase,
                 });
 
                 await invoke<void>('start_agent', {
