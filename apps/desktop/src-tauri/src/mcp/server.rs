@@ -197,6 +197,37 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                             },
                             "required": ["message", "agent_id"]
                         }
+                    },
+                    {
+                        "name": "present_choices",
+                        "description": "Present the user with 2-4 labeled options. Use when you see multiple valid approaches and want the user to pick.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "question": {
+                                    "type": "string",
+                                    "description": "The question or decision to present"
+                                },
+                                "choices": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": { "type": "string", "description": "Short label for this option" },
+                                            "description": { "type": "string", "description": "Why this option and its trade-offs" }
+                                        },
+                                        "required": ["label", "description"]
+                                    },
+                                    "minItems": 2,
+                                    "maxItems": 4
+                                },
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID"
+                                }
+                            },
+                            "required": ["question", "choices", "agent_id"]
+                        }
                     }
                 ]
             }
@@ -277,6 +308,59 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                     }))
                 }
 
+                "present_choices" => {
+                    let question = args.get("question")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let choices = args.get("choices")
+                        .cloned()
+                        .unwrap_or(json!([]));
+                    let agent_id = args.get("agent_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    let (tx, rx) = oneshot::channel::<String>();
+                    {
+                        let mut pending = state.pending_questions.lock().await;
+                        pending.insert(agent_id.clone(), tx);
+                    }
+
+                    let _ = state.app.emit("agent-choices", json!({
+                        "agent_id": agent_id,
+                        "question": question,
+                        "choices": choices,
+                    }));
+
+                    match tokio::time::timeout(Duration::from_secs(600), rx).await {
+                        Ok(Ok(reply)) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": format!("User chose: {}", reply) }],
+                                "isError": false
+                            }
+                        })),
+                        Ok(Err(_)) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": "Error: connection lost" }],
+                                "isError": true
+                            }
+                        })),
+                        Err(_) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": "Timed out waiting for user choice" }],
+                                "isError": true
+                            }
+                        })),
+                    }
+                }
+
                 _ => Some(json!({
                     "jsonrpc": "2.0",
                     "id": id,
@@ -336,6 +420,19 @@ mod tests {
                             },
                             "required": ["message", "agent_id"]
                         }
+                    },
+                    {
+                        "name": "present_choices",
+                        "description": "Present the user with 2-4 labeled options.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "question": { "type": "string" },
+                                "choices": { "type": "array" },
+                                "agent_id": { "type": "string" }
+                            },
+                            "required": ["question", "choices", "agent_id"]
+                        }
                     }
                 ]
             }
@@ -358,7 +455,7 @@ mod tests {
     fn tools_list_contains_ask_human() {
         let resp = tools_list_response(json!(2));
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 2);
+        assert_eq!(tools.len(), 3);
         assert_eq!(tools[0]["name"], "ask_human");
     }
 
@@ -373,6 +470,21 @@ mod tests {
         let required_strs: Vec<&str> =
             required.iter().filter_map(|v| v.as_str()).collect();
         assert!(required_strs.contains(&"message"));
+        assert!(required_strs.contains(&"agent_id"));
+    }
+
+    #[test]
+    fn tools_list_contains_present_choices() {
+        let resp = tools_list_response(json!(2));
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools[2]["name"], "present_choices");
+        let required = tools[2]["inputSchema"]["required"]
+            .as_array()
+            .unwrap();
+        let required_strs: Vec<&str> =
+            required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_strs.contains(&"question"));
+        assert!(required_strs.contains(&"choices"));
         assert!(required_strs.contains(&"agent_id"));
     }
 
