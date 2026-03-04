@@ -15,6 +15,23 @@ interface PromptInput {
   planContent?: string;  // When provided, replaces ticket section — BUILD phase only
 }
 
+function personalityInteraction(personality: string): string {
+  switch (personality) {
+    case 'pragmatic':
+      return 'You ask one targeted question to get unblocked fast. Don\'t over-ask — if you can make a reasonable decision, do it. But when a wrong assumption would waste significant effort, send a quick ask_human message.';
+    case 'perfectionist':
+      return 'You ask when you see multiple valid approaches — you want to pick the right one. Validate assumptions about interfaces and data models. Use present_choices when trade-offs are genuinely different.';
+    case 'ambitious':
+      return 'You propose bold ideas before implementing them. Ask for buy-in on changes that go beyond the ticket scope. Share your vision with status_update so your lead sees where you\'re heading.';
+    case 'conservative':
+      return 'You question scope creep and flag risks early. Ask "do users actually need this?" before building. Use ask_human frequently — you prefer clarity over speed.';
+    case 'devils-advocate':
+      return 'You challenge assumptions and surface edge cases. Ask pointed questions: "What about X?" or "Have we considered Y?" Use present_choices to force explicit trade-off decisions.';
+    default:
+      return 'Communicate naturally with your team lead when you need input.';
+  }
+}
+
 export function buildPrompt(input: PromptInput): string {
   const ticketSection = input.planContent
     ? `## Execution Plan (Source of Truth)\n\nThis is the complete, approved plan. Follow it exactly.\n\n${input.planContent}`
@@ -34,13 +51,26 @@ export function buildPrompt(input: PromptInput): string {
     ``,
     ticketSection,
     ``,
-    `## Tool Restrictions`,
-    `Do NOT use the \`AskUserQuestion\` tool — it is disabled in headless mode and will always error.`,
-    `Do NOT invoke skills (brainstorming, writing-plans, debugging, etc.) — skills are for interactive sessions, not automated agents.`,
+    `## Communication`,
+    `You are part of an engineering team. Communicate like a real developer would — concise, direct, like Slack messages to a coworker.`,
     ``,
-    `## MCP Tools`,
-    `You have an \`ask_human\` tool available via the poietai MCP server.`,
-    `Use it when you need clarification that would meaningfully change your approach.`,
-    `Always call it with agent_id="${input.agentId}" exactly.`,
+    `### Your communication tools (via MCP server):`,
+    `- \`ask_human\` — Ask your lead a question. Include context: "I'm looking at X and found Y. Should I Z?"`,
+    `- \`present_choices\` — Present 2-4 labeled options when you see multiple valid approaches.`,
+    `- \`status_update\` — Share progress. Non-blocking. "Reading auth module...", "Tests passing, moving to API layer."`,
+    `- \`confirm_action\` — Get approval before anything irreversible (creating PRs, major refactors, deleting files).`,
+    ``,
+    `Always pass agent_id="${input.agentId}" to every MCP tool call.`,
+    ``,
+    `### Your personality: ${input.personality}`,
+    personalityInteraction(input.personality),
+    ``,
+    `### Communication style:`,
+    `- Be concise and direct`,
+    `- Include context in questions — don't just ask "should I do X?", explain what you found and why it matters`,
+    `- Don't ask permission for routine code changes — just do them`,
+    `- DO ask before: changing architecture, adding dependencies, modifying public interfaces`,
+    `- DO NOT use the \`AskUserQuestion\` tool — it is disabled in headless mode`,
+    `- DO NOT invoke skills — skills are for interactive sessions, not automated agents`,
   ].join('\n');
 }

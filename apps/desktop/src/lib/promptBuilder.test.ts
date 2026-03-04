@@ -13,7 +13,7 @@ const base = {
   ticketAcceptanceCriteria: [],
 };
 
-test('prompt includes agent id in MCP section', () => {
+test('prompt includes agent id in communication section', () => {
   const prompt = buildPrompt(base);
   expect(prompt).toContain('agent-abc');
   expect(prompt).toContain('ask_human');
@@ -28,7 +28,65 @@ test('prompt suppresses AskUserQuestion', () => {
 test('prompt suppresses skills', () => {
   const prompt = buildPrompt(base);
   expect(prompt).toContain('skills');
-  expect(prompt).toContain('automated agent');
+  expect(prompt).toContain('automated agents');
+});
+
+test('prompt includes Communication section with MCP tools', () => {
+  const prompt = buildPrompt(base);
+  expect(prompt).toContain('## Communication');
+  expect(prompt).toContain('ask_human');
+  expect(prompt).toContain('present_choices');
+  expect(prompt).toContain('status_update');
+  expect(prompt).toContain('confirm_action');
+});
+
+test('prompt includes communication style guidelines', () => {
+  const prompt = buildPrompt(base);
+  expect(prompt).toContain('Be concise and direct');
+  expect(prompt).toContain('Include context in questions');
+});
+
+describe('personality-specific interaction coaching', () => {
+  test('pragmatic personality coaches targeted questions and fast unblocking', () => {
+    const prompt = buildPrompt({ ...base, personality: 'pragmatic' });
+    expect(prompt).toContain('Your personality: pragmatic');
+    expect(prompt).toContain('targeted question');
+    expect(prompt).toContain('unblocked fast');
+  });
+
+  test('perfectionist personality coaches validating assumptions and trade-offs', () => {
+    const prompt = buildPrompt({ ...base, personality: 'perfectionist' });
+    expect(prompt).toContain('Your personality: perfectionist');
+    expect(prompt).toContain('multiple valid approaches');
+    expect(prompt).toContain('Validate assumptions');
+  });
+
+  test('ambitious personality coaches proposing bold ideas and sharing vision', () => {
+    const prompt = buildPrompt({ ...base, personality: 'ambitious' });
+    expect(prompt).toContain('Your personality: ambitious');
+    expect(prompt).toContain('bold ideas');
+    expect(prompt).toContain('vision');
+  });
+
+  test('conservative personality coaches questioning scope creep and flagging risks', () => {
+    const prompt = buildPrompt({ ...base, personality: 'conservative' });
+    expect(prompt).toContain('Your personality: conservative');
+    expect(prompt).toContain('scope creep');
+    expect(prompt).toContain('flag risks');
+  });
+
+  test('devils-advocate personality coaches challenging assumptions and edge cases', () => {
+    const prompt = buildPrompt({ ...base, personality: 'devils-advocate' });
+    expect(prompt).toContain('Your personality: devils-advocate');
+    expect(prompt).toContain('challenge assumptions');
+    expect(prompt).toContain('edge cases');
+  });
+
+  test('unknown personality falls back to natural communication', () => {
+    const prompt = buildPrompt({ ...base, personality: 'unknown-type' });
+    expect(prompt).toContain('Your personality: unknown-type');
+    expect(prompt).toContain('Communicate naturally');
+  });
 });
 
 describe('buildPrompt with planContent', () => {
