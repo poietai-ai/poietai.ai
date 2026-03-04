@@ -9,7 +9,8 @@ import { ToastContainer } from '../ui/ToastContainer';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useAgentStore } from '../../store/agentStore';
 import { useToastStore } from '../../store/toastStore';
-import type { CanvasNodePayload } from '../../types/canvas';
+import { useMessageStore } from '../../store/messageStore';
+import type { CanvasNodePayload, AgentQuestionPayload, AgentChoicesPayload, AgentStatusPayload, AgentConfirmPayload } from '../../types/canvas';
 
 export function AppShell() {
   const [activeView, setActiveView] = useState('dashboard');
@@ -33,12 +34,110 @@ export function AppShell() {
       isQuestion: text.trimEnd().endsWith('?'),
       ticketId: payload.ticket_id,
     });
+
+    useMessageStore.getState().addMessage({
+      id: payload.node_id ?? `dm-${payload.agent_id}-${Date.now()}`,
+      threadId: payload.agent_id,
+      threadType: 'dm',
+      from: 'agent',
+      agentId: payload.agent_id,
+      agentName,
+      content: text,
+      type: 'text',
+      ticketId: payload.ticket_id,
+      timestamp: Date.now(),
+    });
   }, [showToast]);
 
   useEffect(() => {
     const unlisten = listen<CanvasNodePayload>('agent-event', (e) => handleAgentEvent(e.payload));
     return () => { unlisten.then((fn) => fn()); };
   }, [handleAgentEvent]);
+
+  // Route agent-question to DM
+  useEffect(() => {
+    const unlisten = listen<AgentQuestionPayload>('agent-question', (event) => {
+      const { agent_id, question } = event.payload;
+      const agent = useAgentStore.getState().agents.find((a) => a.id === agent_id);
+      useMessageStore.getState().addMessage({
+        id: `dm-q-${agent_id}-${Date.now()}`,
+        threadId: agent_id,
+        threadType: 'dm',
+        from: 'agent',
+        agentId: agent_id,
+        agentName: agent?.name ?? agent_id,
+        content: question,
+        type: 'question',
+        timestamp: Date.now(),
+        resolved: false,
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  // Route agent-status to DM
+  useEffect(() => {
+    const unlisten = listen<AgentStatusPayload>('agent-status', (event) => {
+      const { agent_id, message } = event.payload;
+      const agent = useAgentStore.getState().agents.find((a) => a.id === agent_id);
+      useMessageStore.getState().addMessage({
+        id: `dm-s-${agent_id}-${Date.now()}`,
+        threadId: agent_id,
+        threadType: 'dm',
+        from: 'system',
+        agentId: agent_id,
+        agentName: agent?.name ?? agent_id,
+        content: message,
+        type: 'status',
+        timestamp: Date.now(),
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  // Route agent-choices to DM
+  useEffect(() => {
+    const unlisten = listen<AgentChoicesPayload>('agent-choices', (event) => {
+      const { agent_id, question, choices } = event.payload;
+      const agent = useAgentStore.getState().agents.find((a) => a.id === agent_id);
+      useMessageStore.getState().addMessage({
+        id: `dm-ch-${agent_id}-${Date.now()}`,
+        threadId: agent_id,
+        threadType: 'dm',
+        from: 'agent',
+        agentId: agent_id,
+        agentName: agent?.name ?? agent_id,
+        content: question,
+        type: 'choices',
+        choices,
+        timestamp: Date.now(),
+        resolved: false,
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  // Route agent-confirm to DM
+  useEffect(() => {
+    const unlisten = listen<AgentConfirmPayload>('agent-confirm', (event) => {
+      const { agent_id, action, details } = event.payload;
+      const agent = useAgentStore.getState().agents.find((a) => a.id === agent_id);
+      useMessageStore.getState().addMessage({
+        id: `dm-cf-${agent_id}-${Date.now()}`,
+        threadId: agent_id,
+        threadType: 'dm',
+        from: 'agent',
+        agentId: agent_id,
+        agentName: agent?.name ?? agent_id,
+        content: action,
+        type: 'confirm',
+        actionDetails: details,
+        timestamp: Date.now(),
+        resolved: false,
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   if (!loaded) return null;
 

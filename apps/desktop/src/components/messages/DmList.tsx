@@ -1,33 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { listen } from '@tauri-apps/api/event';
 import { useMessageStore } from '../../store/messageStore';
-import type { CanvasNodePayload } from '../../types/canvas';
 
 export function DmList() {
-  const { threads, unreadCounts, activeThread, setActiveThread, addMessage } = useMessageStore();
+  const { threads, unreadCounts, activeThread, setActiveThread } = useMessageStore();
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  // Route agent text events to DM threads
-  useEffect(() => {
-    const unlisten = listen<CanvasNodePayload>('agent-event', (event) => {
-      const { kind: agentEvent, agent_id, node_id, ticket_id } = event.payload;
-      if (agentEvent.type !== 'text') return;
-
-      const msgId = node_id ?? `${agent_id}-${Date.now()}`;
-
-      addMessage({
-        id: msgId,
-        from: 'agent',
-        agentId: agent_id,
-        agentName: agent_id,
-        content: agentEvent.text,
-        timestamp: new Date().toISOString(),
-        ticketId: ticket_id,
-        canvasNodeId: msgId,
-      });
-    });
-    return () => { unlisten.then((fn) => fn()); };
-  }, [addMessage]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
