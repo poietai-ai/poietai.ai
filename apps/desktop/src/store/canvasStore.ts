@@ -22,6 +22,7 @@ interface CanvasStore {
     qa: { critical: number; warnings: number; advisory: number };
     security: { critical: number; warnings: number };
   }) => void;
+  addStatusUpdateNode: (agentId: string, message: string) => void;
   onNodesChange: (changes: NodeChange[]) => void;
   setAwaiting: (question: string, sessionId: string) => void;
   clearAwaiting: () => void;
@@ -374,6 +375,36 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         ticketId: activeTicketId ?? '',
         content: '',
         synthesisSummary: summary,
+        items: [],
+      },
+    };
+    const newEdges = [...edges];
+    if (nodes.length > 0) {
+      const prevNode = [...nodes].reverse().find((n) => !n.data.isGhost) ?? nodes[nodes.length - 1];
+      newEdges.push({
+        id: `${prevNode.id}->${nodeId}`,
+        source: prevNode.id,
+        target: nodeId,
+        type: 'smoothstep',
+        style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
+      });
+    }
+    set({ nodes: [...nodes, newNode], edges: newEdges });
+  },
+
+  addStatusUpdateNode: (agentId, message) => {
+    const { nodes, edges, activeTicketId } = get();
+    const nodeId = `status-${agentId}-${Date.now()}`;
+    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const newNode: Node<CanvasNodeData> = {
+      id: nodeId,
+      type: 'status_update' as CanvasNodeType,
+      position: { x: xPosition, y: 80 },
+      data: {
+        nodeType: 'status_update' as CanvasNodeType,
+        agentId,
+        ticketId: activeTicketId ?? '',
+        content: message,
         items: [],
       },
     };
