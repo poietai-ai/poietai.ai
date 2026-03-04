@@ -5,7 +5,7 @@ import { useMessageStore } from '../../store/messageStore';
 import { useAgentStore } from '../../store/agentStore';
 import { useTicketStore } from '../../store/ticketStore';
 import { Markdown } from '../canvas/nodes/Markdown';
-import type { DmMessage, Channel } from '../../types/message';
+import type { DmMessage } from '../../types/message';
 
 /** Format time like Slack: "9:41 AM" */
 function fmtTime(ts: number) {

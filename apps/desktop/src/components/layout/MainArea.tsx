@@ -1,6 +1,7 @@
 import { TicketCanvas } from '../canvas/TicketCanvas';
 import { DmList } from '../messages/DmList';
 import { TicketBoard } from '../board/TicketBoard';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 interface MainAreaProps {
   activeView: string;
@@ -18,7 +19,9 @@ export function MainArea({ activeView }: MainAreaProps) {
   if (activeView === 'graph') {
     return (
       <main className="flex-1 overflow-hidden">
-        <TicketCanvas ticketId="ticket-1" />
+        <ErrorBoundary fallbackLabel="TicketCanvas">
+          <TicketCanvas ticketId="ticket-1" />
+        </ErrorBoundary>
       </main>
     );
   }

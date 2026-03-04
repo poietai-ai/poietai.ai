@@ -1,4 +1,5 @@
 import { ThoughtNode } from './ThoughtNode';
+import { AgentMessageNode } from './AgentMessageNode';
 import { FileNode } from './FileNode';
 import { BashNode } from './BashNode';
 import { AwaitingNode } from './AwaitingNode';
@@ -13,7 +14,7 @@ import { StatusUpdateNode } from './StatusUpdateNode';
 // Passed to ReactFlow as the `nodeTypes` prop.
 export const nodeTypes = {
   thought: ThoughtNode,
-  agent_message: ThoughtNode,  // same visual style, different semantic meaning
+  agent_message: AgentMessageNode,
   file_read: FileNode,
   file_edit: FileNode,
   file_write: FileNode,

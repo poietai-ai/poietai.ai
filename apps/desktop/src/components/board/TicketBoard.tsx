@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTicketStore, type TicketStatus } from '../../store/ticketStore';
 import { TicketCard } from './TicketCard';
 import { TicketCanvas } from '../canvas/TicketCanvas';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 const COLUMNS: { id: TicketStatus; label: string }[] = [
   { id: 'backlog',     label: 'Backlog'     },
@@ -33,7 +34,9 @@ export function TicketBoard() {
           )}
         </div>
         <div className="flex-1 overflow-hidden">
-          <TicketCanvas ticketId={canvasTicketId} />
+          <ErrorBoundary fallbackLabel="TicketCanvas">
+            <TicketCanvas ticketId={canvasTicketId} />
+          </ErrorBoundary>
         </div>
       </div>
     );

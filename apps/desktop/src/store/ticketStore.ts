@@ -1,5 +1,6 @@
 // apps/desktop/src/store/ticketStore.ts
 import { create } from 'zustand';
+import { load } from '@tauri-apps/plugin-store';
 import { phasesForComplexity, nextPhase } from '../lib/phaseRouter';
 
 export type TicketStatus =
@@ -38,7 +39,10 @@ export interface Ticket {
 interface TicketStore {
   tickets: Ticket[];
   selectedTicketId: string | null;
+  loaded: boolean;
+  isLoading: boolean;
 
+  loadFromDisk: () => Promise<void>;
   addTicket: (input: { title: string; description: string; complexity: number; acceptanceCriteria: string[] }) => void;
   updateTicketStatus: (id: string, status: TicketStatus) => void;
   assignTicket: (ticketId: string, assignment: Assignment) => void;
@@ -82,64 +86,109 @@ const DEMO_TICKETS: Ticket[] = [
   },
 ];
 
-export const useTicketStore = create<TicketStore>((set) => ({
-  tickets: DEMO_TICKETS,
+async function getTicketStore() {
+  return load('tickets.json', { defaults: {}, autoSave: true });
+}
+
+async function persistTickets(get: () => TicketStore) {
+  try {
+    const store = await getTicketStore();
+    await store.set('tickets', get().tickets);
+    await store.set('selectedTicketId', get().selectedTicketId);
+  } catch (e) {
+    console.warn('failed to persist tickets:', e);
+  }
+}
+
+export const useTicketStore = create<TicketStore>((set, get) => ({
+  tickets: [],
   selectedTicketId: null,
+  loaded: false,
+  isLoading: false,
 
-  addTicket: (input) => set((state) => {
-    const phases = phasesForComplexity(input.complexity) as TicketPhase[];
-    const ticket: Ticket = {
-      id: crypto.randomUUID(),
-      title: input.title,
-      description: input.description,
-      complexity: input.complexity,
-      status: 'backlog',
-      assignments: [],
-      acceptanceCriteria: input.acceptanceCriteria,
-      phases,
-      activePhase: phases[0],
-      artifacts: {},
-    };
-    return { tickets: [...state.tickets, ticket] };
-  }),
+  loadFromDisk: async () => {
+    if (get().loaded || get().isLoading) return;
+    set({ isLoading: true });
+    try {
+      const store = await getTicketStore();
+      const tickets = (await store.get<Ticket[]>('tickets')) ?? DEMO_TICKETS;
+      const selectedTicketId = (await store.get<string>('selectedTicketId')) ?? null;
+      set({ tickets, selectedTicketId, loaded: true, isLoading: false });
+    } catch (e) {
+      console.warn('failed to load tickets:', e);
+      set({ tickets: DEMO_TICKETS, loaded: true, isLoading: false });
+    }
+  },
 
-  updateTicketStatus: (id, status) =>
+  addTicket: (input) => {
+    set((state) => {
+      const phases = phasesForComplexity(input.complexity) as TicketPhase[];
+      const ticket: Ticket = {
+        id: crypto.randomUUID(),
+        title: input.title,
+        description: input.description,
+        complexity: input.complexity,
+        status: 'backlog',
+        assignments: [],
+        acceptanceCriteria: input.acceptanceCriteria,
+        phases,
+        activePhase: phases[0],
+        artifacts: {},
+      };
+      return { tickets: [...state.tickets, ticket] };
+    });
+    persistTickets(get);
+  },
+
+  updateTicketStatus: (id, status) => {
     set((s) => ({
       tickets: s.tickets.map((t) => (t.id === id ? { ...t, status } : t)),
-    })),
+    }));
+    persistTickets(get);
+  },
 
-  assignTicket: (ticketId, assignment) =>
+  assignTicket: (ticketId, assignment) => {
     set((s) => ({
       tickets: s.tickets.map((t) =>
         t.id === ticketId
           ? { ...t, assignments: [...t.assignments, assignment], status: 'assigned' as TicketStatus }
           : t
       ),
-    })),
+    }));
+    persistTickets(get);
+  },
 
-  selectTicket: (id) => set({ selectedTicketId: id }),
+  selectTicket: (id) => { set({ selectedTicketId: id }); persistTickets(get); },
 
-  advanceTicketPhase: (id) => set((state) => ({
-    tickets: state.tickets.map((t) => {
-      if (t.id !== id || !t.activePhase) return t;
-      const next = nextPhase(t.phases, t.activePhase) as TicketPhase | undefined;
-      if (!next) return t;
-      return {
-        ...t,
-        activePhase: next,
-        status: next === 'ship' ? 'shipped' : t.status,
-      };
-    }),
-  })),
+  advanceTicketPhase: (id) => {
+    set((state) => ({
+      tickets: state.tickets.map((t) => {
+        if (t.id !== id || !t.activePhase) return t;
+        const next = nextPhase(t.phases, t.activePhase) as TicketPhase | undefined;
+        if (!next) return t;
+        return {
+          ...t,
+          activePhase: next,
+          status: next === 'ship' ? 'shipped' : t.status,
+        };
+      }),
+    }));
+    persistTickets(get);
+  },
 
-  setPhaseArtifact: (id, artifact) => set((state) => ({
-    tickets: state.tickets.map((t) =>
-      t.id !== id ? t : { ...t, artifacts: { ...t.artifacts, [artifact.phase]: artifact } }
-    ),
-  })),
+  setPhaseArtifact: (id, artifact) => {
+    set((state) => ({
+      tickets: state.tickets.map((t) =>
+        t.id !== id ? t : { ...t, artifacts: { ...t.artifacts, [artifact.phase]: artifact } }
+      ),
+    }));
+    persistTickets(get);
+  },
 
-  blockTicket: (id) =>
+  blockTicket: (id) => {
     set((s) => ({
       tickets: s.tickets.map((t) => (t.id === id ? { ...t, status: 'blocked' as TicketStatus } : t)),
-    })),
+    }));
+    persistTickets(get);
+  },
 }));

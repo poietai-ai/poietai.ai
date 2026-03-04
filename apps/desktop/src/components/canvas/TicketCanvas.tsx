@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { ReactFlow, Background, Controls, BackgroundVariant } from '@xyflow/react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
@@ -16,8 +16,10 @@ import { parseQaResult } from '../../lib/parseQaResult';
 import { parseSecurityResult } from '../../lib/parseSecurityResult';
 import { nodeTypes } from './nodes';
 import { AskUserOverlay } from './AskUserOverlay';
+import { CanvasFilterBar } from './CanvasFilterBar';
 import { ConversationPanel } from './ConversationPanel';
 import { PhaseBreadcrumb } from './PhaseBreadcrumb';
+import { useSettingsStore, NODE_CATEGORIES, type NodeCategory } from '../../store/settingsStore';
 import type { CanvasNodePayload, AgentQuestionPayload, AgentChoicesPayload, AgentStatusPayload, AgentConfirmPayload } from '../../types/canvas';
 
 interface AgentResultPayload {
@@ -49,6 +51,18 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
   useEffect(() => {
     const unlisten = listen<CanvasNodePayload>('agent-event', (event) => {
       addNodeFromEvent(event.payload);
+
+      // Route agent text messages to the conversation panel (DM-style)
+      if (event.payload.kind.type === 'text') {
+        const agent = useAgentStore.getState().agents.find((a) => a.id === event.payload.agent_id);
+        useConversationStore.getState().addMessage({
+          ticketId: event.payload.ticket_id,
+          agentId: event.payload.agent_id,
+          agentName: agent?.name ?? event.payload.agent_id.slice(0, 8),
+          type: 'agent_message',
+          content: event.payload.kind.text,
+        });
+      }
     });
     return () => { unlisten.then((fn) => fn()); };
   }, [addNodeFromEvent]);
@@ -420,6 +434,30 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
     return () => { unlisten.then((fn) => fn()); };
   }, [ticketId]);
 
+  const hiddenNodeCategories = useSettingsStore((s) => s.hiddenNodeCategories);
+
+  // Build a set of hidden node type strings from the hidden categories
+  const hiddenNodeTypes = useMemo(() => {
+    const types = new Set<string>();
+    for (const cat of hiddenNodeCategories) {
+      for (const t of NODE_CATEGORIES[cat as NodeCategory]) {
+        types.add(t);
+      }
+    }
+    return types;
+  }, [hiddenNodeCategories]);
+
+  const filteredNodes = useMemo(() => {
+    if (hiddenNodeTypes.size === 0) return nodes;
+    return nodes.filter((n) => !hiddenNodeTypes.has(n.type ?? ''));
+  }, [nodes, hiddenNodeTypes]);
+
+  const filteredEdges = useMemo(() => {
+    if (hiddenNodeTypes.size === 0) return edges;
+    const visibleIds = new Set(filteredNodes.map((n) => n.id));
+    return edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
+  }, [edges, filteredNodes, hiddenNodeTypes]);
+
   const lastNode = nodes.length > 0 ? nodes[nodes.length - 1] : null;
   const agentId = lastNode ? String(lastNode.data.agentId ?? '') : '';
 
@@ -430,8 +468,8 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
       )}
       <div className="relative flex-1 bg-zinc-50">
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={filteredNodes}
+          edges={filteredEdges}
           nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
           fitView
@@ -446,6 +484,8 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
           />
           <Controls />
         </ReactFlow>
+
+        <CanvasFilterBar />
 
         {/* Conversation panel — persistent sidebar for all agent-user interactions */}
         <ConversationPanel ticketId={ticketId} />

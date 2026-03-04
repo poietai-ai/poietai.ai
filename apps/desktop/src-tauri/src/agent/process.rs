@@ -14,7 +14,7 @@ pub struct CanvasNodePayload {
     pub node_id: String,
     pub agent_id: String,
     pub ticket_id: String,
-    pub event: AgentEvent,
+    pub kind: AgentEvent,
 }
 
 /// Payload emitted when the agent run completes.
@@ -286,7 +286,7 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
                 node_id,
                 agent_id: config.agent_id.clone(),
                 ticket_id: config.ticket_id.clone(),
-                event,
+                kind: event,
             };
 
             let _ = app.emit("agent-event", &payload);

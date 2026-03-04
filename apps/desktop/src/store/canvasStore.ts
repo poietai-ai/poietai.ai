@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Node, Edge } from '@xyflow/react';
 import { applyNodeChanges, type NodeChange } from '@xyflow/react';
+import { load } from '@tauri-apps/plugin-store';
 import type { CanvasNodeData, CanvasNodePayload, CanvasNodeType, AgentEventKind } from '../types/canvas';
 import type { PlanArtifact } from '../types/planArtifact';
 
@@ -99,6 +100,33 @@ function nodeIdFromPayload(payload: CanvasNodePayload): string {
   return `${payload.agent_id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+const CANVAS_PERSIST_DEBOUNCE_MS = 1000;
+
+async function getCanvasStore() {
+  return load('canvas.json', { defaults: {}, autoSave: true });
+}
+
+/** Strip ReactFlow runtime fields — keep only what we need to restore. */
+function serializeNodes(nodes: Node<CanvasNodeData>[]): Array<{ id: string; type: string; position: { x: number; y: number }; data: CanvasNodeData }> {
+  return nodes.map(({ id, type, position, data }) => ({ id, type: type ?? 'default', position, data }));
+}
+
+let canvasPersistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedPersistCanvas(get: () => CanvasStore) {
+  if (canvasPersistTimer) clearTimeout(canvasPersistTimer);
+  canvasPersistTimer = setTimeout(async () => {
+    const { activeTicketId, nodes, edges } = get();
+    if (!activeTicketId) return;
+    try {
+      const store = await getCanvasStore();
+      await store.set(activeTicketId, { nodes: serializeNodes(nodes), edges });
+    } catch (e) {
+      console.warn('failed to persist canvas:', e);
+    }
+  }, CANVAS_PERSIST_DEBOUNCE_MS);
+}
+
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
   nodes: [],
   edges: [],
@@ -107,30 +135,50 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   awaitingSessionId: null,
 
   setActiveTicket: (ticketId) => {
+    const { activeTicketId, nodes, edges } = get();
+    // Save current ticket's canvas immediately (not debounced)
+    if (activeTicketId && nodes.length > 0) {
+      getCanvasStore()
+        .then((store) => store.set(activeTicketId, { nodes: serializeNodes(nodes), edges }))
+        .catch((e) => console.warn('failed to save canvas on switch:', e));
+    }
+    // Clear canvas and set new ticket
     set({ activeTicketId: ticketId, nodes: [], edges: [] });
+    // Load new ticket's canvas
+    getCanvasStore()
+      .then(async (store) => {
+        const saved = await store.get<{ nodes: Node<CanvasNodeData>[]; edges: Edge[] }>(ticketId);
+        if (saved && get().activeTicketId === ticketId) {
+          set({ nodes: saved.nodes, edges: saved.edges });
+        }
+      })
+      .catch((e) => console.warn('failed to load canvas:', e));
   },
 
-  initGhostGraph: (planArtifact) => set((state) => {
-    const allTasks = planArtifact.taskGroups.flatMap((g) => g.tasks);
-    const ghostNodes: Node<CanvasNodeData>[] = allTasks.map((task, idx) => ({
-      id: `ghost-${task.id}`,
-      type: 'plan_task' as CanvasNodeType,
-      position: { x: idx * 240, y: -180 },
-      data: {
-        nodeType: 'plan_task' as CanvasNodeType,
-        agentId: '',
-        ticketId: state.activeTicketId ?? '',
-        content: task.description,
-        filePath: task.file,
-        taskId: task.id,
-        isGhost: true,
-        activated: false,
-        action: task.action,
-        items: [],
-      },
-    }));
-    return { nodes: [...ghostNodes, ...state.nodes] };
-  }),
+  initGhostGraph: (planArtifact) => {
+    set((state) => {
+      const allTasks = planArtifact.taskGroups.flatMap((g) => g.tasks);
+      const ghostNodes: Node<CanvasNodeData>[] = allTasks.map((task, idx) => ({
+        id: `ghost-${task.id}`,
+        type: 'plan_task' as CanvasNodeType,
+        position: { x: idx * 240, y: -180 },
+        data: {
+          nodeType: 'plan_task' as CanvasNodeType,
+          agentId: '',
+          ticketId: state.activeTicketId ?? '',
+          content: task.description,
+          filePath: task.file,
+          taskId: task.id,
+          isGhost: true,
+          activated: false,
+          action: task.action,
+          items: [],
+        },
+      }));
+      return { nodes: [...ghostNodes, ...state.nodes] };
+    });
+    debouncedPersistCanvas(get);
+  },
 
   addNodeFromEvent: (payload) => {
     const { nodes, edges, activeTicketId } = get();
@@ -150,6 +198,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         data: { ...nodes[targetIndex].data, fileContent: text },
       };
       set({ nodes: [...nodes.slice(0, targetIndex), updated, ...nodes.slice(targetIndex + 1)] });
+      debouncedPersistCanvas(get);
       return;
     }
 
@@ -200,6 +249,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           }
         }
         set({ nodes: newNodes, edges: newEdges });
+        debouncedPersistCanvas(get);
         return;
       }
     }
@@ -260,6 +310,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }
 
     set({ nodes: newNodes, edges: newEdges });
+    debouncedPersistCanvas(get);
   },
 
   addValidateResultNode: (summary) => {
@@ -294,6 +345,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }
 
     set({ nodes: [...nodes, newNode], edges: newEdges });
+    debouncedPersistCanvas(get);
   },
 
   addQaResultNode: (summary) => {
@@ -328,6 +380,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }
 
     set({ nodes: [...nodes, newNode], edges: newEdges });
+    debouncedPersistCanvas(get);
   },
 
   addSecurityResultNode: (summary) => {
@@ -359,6 +412,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       });
     }
     set({ nodes: [...nodes, newNode], edges: newEdges });
+    debouncedPersistCanvas(get);
   },
 
   addReviewSynthesisNode: (summary) => {
@@ -390,6 +444,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       });
     }
     set({ nodes: [...nodes, newNode], edges: newEdges });
+    debouncedPersistCanvas(get);
   },
 
   addStatusUpdateNode: (agentId, message) => {
@@ -420,6 +475,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       });
     }
     set({ nodes: [...nodes, newNode], edges: newEdges });
+    debouncedPersistCanvas(get);
   },
 
   setAwaiting: (question, sessionId) => {
@@ -432,9 +488,11 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   onNodesChange: (changes) => {
     set((state) => ({ nodes: applyNodeChanges(changes, state.nodes) as Node<CanvasNodeData>[] }));
+    debouncedPersistCanvas(get);
   },
 
   clearCanvas: () => {
     set({ nodes: [], edges: [] });
+    debouncedPersistCanvas(get);
   },
 }));
