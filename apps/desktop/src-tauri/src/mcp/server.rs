@@ -161,71 +161,126 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
             "jsonrpc": "2.0",
             "id": id,
             "result": {
-                "tools": [{
-                    "name": "ask_human",
-                    "description": "Ask the human a question and wait for their reply. Use when you need clarification that would meaningfully change your approach.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "question": {
-                                "type": "string",
-                                "description": "The question to ask"
+                "tools": [
+                    {
+                        "name": "ask_human",
+                        "description": "Ask the human a question and wait for their reply. Use when you need clarification that would meaningfully change your approach.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "question": {
+                                    "type": "string",
+                                    "description": "The question to ask"
+                                },
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID, exactly as given in your system prompt"
+                                }
                             },
-                            "agent_id": {
-                                "type": "string",
-                                "description": "Your agent ID, exactly as given in your system prompt"
-                            }
-                        },
-                        "required": ["question", "agent_id"]
+                            "required": ["question", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "status_update",
+                        "description": "Send a non-blocking status update to your team lead. Use to share progress: what you're doing, what you found, milestones reached.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "message": {
+                                    "type": "string",
+                                    "description": "A brief status message, like a Slack update"
+                                },
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID, exactly as given in your system prompt"
+                                }
+                            },
+                            "required": ["message", "agent_id"]
+                        }
                     }
-                }]
+                ]
             }
         })),
 
         "tools/call" => {
             let params = body.get("params")?;
-            if params["name"].as_str()? != "ask_human" {
-                return Some(json!({
+            let tool_name = params["name"].as_str()?;
+            let args = params.get("arguments").cloned().unwrap_or(json!({}));
+
+            match tool_name {
+                "ask_human" => {
+                    let question = args.get("question")
+                        .and_then(|v| v.as_str())?
+                        .to_string();
+                    let agent_id = args.get("agent_id")
+                        .and_then(|v| v.as_str())?
+                        .to_string();
+
+                    let (tx, rx) = oneshot::channel::<String>();
+                    state
+                        .pending_questions
+                        .lock()
+                        .await
+                        .insert(agent_id.clone(), tx);
+
+                    let _ = state.app.emit(
+                        "agent-question",
+                        json!({ "agent_id": agent_id, "question": question }),
+                    );
+
+                    // Block until reply arrives or timeout (10 minutes)
+                    match tokio::time::timeout(Duration::from_secs(600), rx).await {
+                        Ok(Ok(reply)) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": reply }],
+                                "isError": false
+                            }
+                        })),
+                        Ok(Err(_)) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32001, "message": "Reply channel closed (app may have been closed)" }
+                        })),
+                        Err(_) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32002, "message": "Timed out waiting for human reply (10 minutes)" }
+                        })),
+                    }
+                }
+
+                "status_update" => {
+                    let message = args.get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let agent_id = args.get("agent_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    // Non-blocking: emit event and return immediately
+                    let _ = state.app.emit("agent-status", json!({
+                        "agent_id": agent_id,
+                        "message": message,
+                    }));
+
+                    Some(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{ "type": "text", "text": "Status update delivered." }],
+                            "isError": false
+                        }
+                    }))
+                }
+
+                _ => Some(json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "error": { "code": -32601, "message": "Unknown tool" }
-                }));
-            }
-
-            let question = params["arguments"]["question"].as_str()?.to_string();
-            let agent_id = params["arguments"]["agent_id"].as_str()?.to_string();
-
-            let (tx, rx) = oneshot::channel::<String>();
-            state
-                .pending_questions
-                .lock()
-                .await
-                .insert(agent_id.clone(), tx);
-
-            let _ = state.app.emit(
-                "agent-question",
-                json!({ "agent_id": agent_id, "question": question }),
-            );
-
-            // Block until reply arrives or timeout (10 minutes)
-            match tokio::time::timeout(Duration::from_secs(600), rx).await {
-                Ok(Ok(reply)) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [{ "type": "text", "text": reply }],
-                        "isError": false
-                    }
-                })),
-                Ok(Err(_)) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": { "code": -32001, "message": "Reply channel closed (app may have been closed)" }
-                })),
-                Err(_) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": { "code": -32002, "message": "Timed out waiting for human reply (10 minutes)" }
                 })),
             }
         }
@@ -257,18 +312,32 @@ mod tests {
             "jsonrpc": "2.0",
             "id": id,
             "result": {
-                "tools": [{
-                    "name": "ask_human",
-                    "description": "Ask the human a question and wait for their reply.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "question": { "type": "string" },
-                            "agent_id": { "type": "string" }
-                        },
-                        "required": ["question", "agent_id"]
+                "tools": [
+                    {
+                        "name": "ask_human",
+                        "description": "Ask the human a question and wait for their reply.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "question": { "type": "string" },
+                                "agent_id": { "type": "string" }
+                            },
+                            "required": ["question", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "status_update",
+                        "description": "Send a non-blocking status update to your team lead.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "message": { "type": "string" },
+                                "agent_id": { "type": "string" }
+                            },
+                            "required": ["message", "agent_id"]
+                        }
                     }
-                }]
+                ]
             }
         })
     }
@@ -289,8 +358,22 @@ mod tests {
     fn tools_list_contains_ask_human() {
         let resp = tools_list_response(json!(2));
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 1);
+        assert_eq!(tools.len(), 2);
         assert_eq!(tools[0]["name"], "ask_human");
+    }
+
+    #[test]
+    fn tools_list_contains_status_update() {
+        let resp = tools_list_response(json!(2));
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools[1]["name"], "status_update");
+        let required = tools[1]["inputSchema"]["required"]
+            .as_array()
+            .unwrap();
+        let required_strs: Vec<&str> =
+            required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_strs.contains(&"message"));
+        assert!(required_strs.contains(&"agent_id"));
     }
 
     #[test]
