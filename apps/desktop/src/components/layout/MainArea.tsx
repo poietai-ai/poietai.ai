@@ -2,6 +2,7 @@ import { TicketCanvas } from '../canvas/TicketCanvas';
 import { DmList } from '../messages/DmList';
 import { TicketBoard } from '../board/TicketBoard';
 import { ErrorBoundary } from '../ErrorBoundary';
+import { useNavigationStore } from '../../store/navigationStore';
 
 interface MainAreaProps {
   activeView: string;
@@ -16,11 +17,19 @@ const viewLabels: Record<string, string> = {
 };
 
 export function MainArea({ activeView }: MainAreaProps) {
+  const selectedTicketId = useNavigationStore((s) => s.selectedTicketId);
+
   if (activeView === 'graph') {
     return (
       <main className="flex-1 overflow-hidden">
         <ErrorBoundary fallbackLabel="TicketCanvas">
-          <TicketCanvas ticketId="ticket-1" />
+          {selectedTicketId ? (
+            <TicketCanvas ticketId={selectedTicketId} />
+          ) : (
+            <div className="flex-1 flex items-center justify-center h-full">
+              <p className="text-zinc-500 text-sm">Select a ticket to view its canvas</p>
+            </div>
+          )}
         </ErrorBoundary>
       </main>
     );
