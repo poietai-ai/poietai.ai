@@ -12,7 +12,7 @@ import { Markdown } from '../canvas/nodes/Markdown';
 import { parseTokens } from '../../lib/tokenParser';
 import { MCP_TOOLS } from '../../lib/mcpTools';
 import { TokenChip } from './TokenChip';
-import type { DmMessage } from '../../types/message';
+import type { DmMessage, Conversation } from '../../types/message';
 
 /** Format time like Slack: "9:41 AM" */
 function fmtTime(ts: number) {
@@ -576,16 +576,42 @@ export function DmList() {
   const [acSelectedIdx, setAcSelectedIdx] = useState(0);
 
   const tickets = useTicketStore((s) => s.tickets);
+  const conversations = useMessageStore((s) => s.conversations);
+  const migrateToConversations = useMessageStore((s) => s.migrateToConversations);
+  const loaded = useMessageStore((s) => s.loaded);
+
+  useEffect(() => {
+    if (loaded && conversations.length === 0) {
+      migrateToConversations();
+    }
+  }, [loaded, conversations.length, migrateToConversations]);
 
   const channelIds = new Set(channels.map((c) => c.id));
 
-  // Merge agent IDs with existing thread IDs so all agents appear even with no messages
-  const dmThreadIds = useMemo(() => {
-    const existingIds = Object.keys(threads).filter((id) => !channelIds.has(id));
-    const agentIds = agents.map((a) => a.id);
-    const merged = new Set([...agentIds, ...existingIds]);
-    return [...merged];
-  }, [threads, agents, channelIds]);
+  // Build conversation list: existing conversations + ensure all agents have a 1:1
+  const sortedConversations = useMemo(() => {
+    const convMap = new Map(conversations.map((c) => [c.id, c]));
+    const stubs: Conversation[] = [];
+    for (const agent of agents) {
+      if (!convMap.has(agent.id)) {
+        stubs.push({
+          id: agent.id,
+          type: 'dm',
+          participants: [agent.id],
+          locked: true,
+          createdAt: Date.now(),
+          lastMessageAt: 0,
+        });
+      }
+    }
+    const all = [...conversations.filter((c) => c.type === 'dm'), ...stubs];
+    return all.sort((a, b) => {
+      if (a.lastMessageAt === 0 && b.lastMessageAt === 0) return 0;
+      if (a.lastMessageAt === 0) return 1;
+      if (b.lastMessageAt === 0) return -1;
+      return b.lastMessageAt - a.lastMessageAt;
+    });
+  }, [conversations, agents]);
   const isChannel = activeThread ? channelIds.has(activeThread) : false;
   const activeMessages = activeThread ? (threads[activeThread] ?? []) : [];
   const topLevelMessages = useMemo(() => getTopLevelMessages(activeMessages), [activeMessages]);
@@ -606,7 +632,13 @@ export function DmList() {
   // Typing indicator — only show when the agent is actively responding in chat,
   // NOT when a subagent is working on a ticket in the background
   const activeAgent = activeThread && !isChannel
-    ? agents.find((a) => a.id === activeThread)
+    ? (() => {
+        const conv = conversations.find((c) => c.id === activeThread);
+        if (conv && conv.participants.length === 1) {
+          return agents.find((a) => a.id === conv.participants[0]);
+        }
+        return agents.find((a) => a.id === activeThread);
+      })()
     : null;
   const isAgentTyping = activeAgent?.chatting === true;
 
@@ -699,7 +731,16 @@ export function DmList() {
         // MCP ask_human question — answer via the MCP server
         await invoke('answer_agent', { agentId: msg.agentId, reply: finalReply });
       }
-      resolveMessage(msgId, reply);
+      // Show clean "Approved"/"Rejected" instead of raw JSON for confirm messages
+      let displayResolution = reply;
+      if (msg.type === 'confirm') {
+        try {
+          const parsed = JSON.parse(finalReply);
+          displayResolution = parsed.approved ? 'Approved' : 'Rejected';
+          if (parsed.reply) displayResolution += `: ${parsed.reply}`;
+        } catch { /* keep raw */ }
+      }
+      resolveMessage(msgId, displayResolution);
       addMessage({
         id: `reply-${Date.now()}`,
         threadId: activeThread,
@@ -741,45 +782,39 @@ export function DmList() {
       timestamp: Date.now(),
     });
 
-    // For DM threads, invoke the chat agent backend
+    // For DM threads, invoke the chat agent backend for all participants
     if (!isChannel) {
-      const agent = agents.find((a) => a.id === activeThread);
-      if (!agent) return;
+      const conv = conversations.find((c) => c.id === activeThread);
+      const participantIds = conv ? conv.participants : [activeThread];
 
-      const tickets = useTicketStore.getState().tickets;
-      const contextUpdate = useChatSessionStore.getState().flushUpdates(activeThread);
-      const { projects, activeProjectId } = useProjectStore.getState();
-      const activeProject = projects.find((p) => p.id === activeProjectId);
-      const projectRoot = activeProject?.repos[0]?.repoRoot;
-      const systemPrompt = buildChatPrompt({
-        agent,
-        tickets,
-        projectName: activeProject?.name,
-        projectRoot,
-      });
+      for (const agentId of participantIds) {
+        const agent = agents.find((a) => a.id === agentId);
+        if (!agent) continue;
 
-      try {
-        await invoke('chat_agent', {
-          payload: {
-            agent_id: activeThread,
-            message,
-            system_prompt: systemPrompt,
-            context_update: contextUpdate,
-          },
+        const tickets = useTicketStore.getState().tickets;
+        const contextUpdate = useChatSessionStore.getState().flushUpdates(agentId);
+        const { projects, activeProjectId } = useProjectStore.getState();
+        const activeProject = projects.find((p) => p.id === activeProjectId);
+        const projectRoot = activeProject?.repos[0]?.repoRoot;
+        const systemPrompt = buildChatPrompt({
+          agent,
+          tickets,
+          projectName: activeProject?.name,
+          projectRoot,
         });
-      } catch (err) {
-        console.warn('[chat_agent] invoke failed:', err);
-        addMessage({
-          id: `err-${Date.now()}`,
-          threadId: activeThread,
-          threadType: 'dm',
-          from: 'system',
-          agentId: activeThread,
-          agentName: agent.name,
-          content: `Failed to send — ${err instanceof Error ? err.message : String(err)}`,
-          type: 'status',
-          timestamp: Date.now(),
-        });
+
+        try {
+          await invoke('chat_agent', {
+            payload: {
+              agent_id: agentId,
+              message,
+              system_prompt: systemPrompt,
+              context_update: contextUpdate,
+            },
+          });
+        } catch (err) {
+          console.warn(`[chat_agent] invoke failed for ${agentId}:`, err);
+        }
       }
     }
   };
@@ -952,17 +987,21 @@ export function DmList() {
             </h2>
           </div>
 
-          {dmThreadIds.map((agentId) => {
-            const name = agentNameFor(agentId);
-            const unread = unreadCounts[agentId] ?? 0;
-            const isActive = activeThread === agentId;
-            const agent = agents.find((a) => a.id === agentId);
+          {sortedConversations.map((conv) => {
+            const unread = unreadCounts[conv.id] ?? 0;
+            const isActive = activeThread === conv.id;
+            const displayName = conv.participants.length === 1
+              ? agentNameFor(conv.participants[0])
+              : conv.participants.map(agentNameFor).join(', ');
+            const avatarName = agentNameFor(conv.participants[0]);
 
             return (
               <button
-                key={agentId}
-                onClick={() => setActiveThread(agentId)}
+                key={conv.id}
+                onClick={() => setActiveThread(conv.id)}
                 onContextMenu={(e) => {
+                  if (conv.participants.length !== 1) return;
+                  const agent = agents.find((a) => a.id === conv.participants[0]);
                   if (!agent) return;
                   e.preventDefault();
                   setAgentContextMenu({ x: e.clientX, y: e.clientY, agent });
@@ -971,10 +1010,16 @@ export function DmList() {
                   hover:bg-zinc-800 transition-colors text-left
                   ${isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400'}`}
               >
-                <div className="w-6 h-6 rounded bg-violet-700 flex items-center justify-center text-xs text-white font-bold flex-shrink-0">
-                  {name.charAt(0).toUpperCase()}
-                </div>
-                <span className="flex-1 truncate">{name}</span>
+                {conv.participants.length === 1 ? (
+                  <div className="w-6 h-6 rounded bg-violet-700 flex items-center justify-center text-xs text-white font-bold flex-shrink-0">
+                    {avatarName.charAt(0).toUpperCase()}
+                  </div>
+                ) : (
+                  <div className="w-6 h-6 rounded bg-indigo-700 flex items-center justify-center text-[9px] text-white font-bold flex-shrink-0">
+                    {conv.participants.length}
+                  </div>
+                )}
+                <span className="flex-1 truncate">{displayName}</span>
                 {unread > 0 && (
                   <span className="bg-violet-600 text-white text-xs rounded-full px-1.5 py-0.5">
                     {unread}
@@ -984,7 +1029,7 @@ export function DmList() {
             );
           })}
 
-          {dmThreadIds.length === 0 && agents.length === 0 && (
+          {sortedConversations.length === 0 && agents.length === 0 && (
             <p className="px-4 py-2 text-zinc-600 text-xs">
               No agents yet. Create an agent to start.
             </p>
