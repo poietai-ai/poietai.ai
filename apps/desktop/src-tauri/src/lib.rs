@@ -355,6 +355,7 @@ async fn chat_agent(
             "mcp__poietai__complete_phase".to_string(),
             "mcp__poietai__claim_ticket".to_string(),
             "mcp__poietai__relay_answer".to_string(),
+            "mcp__poietai__message_agent".to_string(),
         ],
         working_dir,
         env: vec![],

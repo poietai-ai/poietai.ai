@@ -16,4 +16,5 @@ export const MCP_TOOLS: McpToolDef[] = [
   { name: 'complete_phase', description: 'Signal phase completion', slashCommand: false },
   { name: 'claim_ticket', description: 'Claim and start working on a ticket', slashCommand: false },
   { name: 'relay_answer', description: 'Relay user answer to your coding session', slashCommand: false },
+  { name: 'message_agent', description: 'Send a message to another agent', slashCommand: false },
 ];
