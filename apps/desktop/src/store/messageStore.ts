@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { readProjectStore, writeProjectStore } from '../lib/projectFileIO';
 import { getActiveProjectRoot } from './projectStore';
-import type { DmMessage, Channel } from '../types/message';
+import type { DmMessage, Channel, Conversation } from '../types/message';
 
 interface MessageStore {
   threads: Record<string, DmMessage[]>;
@@ -10,8 +10,13 @@ interface MessageStore {
   activeThread: string | null;
   openThreadParentId: string | null;
   loaded: boolean;
+  conversations: Conversation[];
 
   loadFromDisk: () => Promise<void>;
+  addConversation: (conversation: Conversation) => void;
+  findOrCreateDm: (participants: string[]) => Conversation;
+  updateConversation: (id: string, patch: Partial<Pick<Conversation, 'name' | 'participants' | 'lastMessageAt'>>) => void;
+  migrateToConversations: () => void;
   addMessage: (message: DmMessage) => void;
   resolveMessage: (id: string, resolution: string) => void;
   setActiveThread: (threadId: string) => void;
@@ -37,6 +42,7 @@ function debouncedPersistMessages(get: () => MessageStore) {
       await writeProjectStore(root, 'messages.json', {
         threads: get().threads,
         channels: get().channels,
+        conversations: get().conversations,
       });
     } catch (e) {
       console.warn('failed to persist messages:', e);
@@ -51,22 +57,25 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
   activeThread: null,
   openThreadParentId: null,
   loaded: false,
+  conversations: [],
 
   loadFromDisk: async () => {
     if (get().loaded) return;
     try {
       const root = getActiveProjectRoot();
       if (!root) {
-        set({ threads: {}, channels: [], loaded: true });
+        set({ threads: {}, channels: [], conversations: [], loaded: true });
         return;
       }
       const saved = await readProjectStore<{
         threads: Record<string, DmMessage[]>;
         channels: Channel[];
+        conversations?: Conversation[];
       }>(root, 'messages.json');
       const threads = saved?.threads ?? {};
       const channels = saved?.channels ?? [];
-      set({ threads, channels, loaded: true });
+      const conversations = saved?.conversations ?? [];
+      set({ threads, channels, conversations, loaded: true });
     } catch (e) {
       console.warn('failed to load messages:', e);
       set({ loaded: true });
@@ -74,7 +83,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
   },
 
   addMessage: (message) => {
-    const { threads, unreadCounts, activeThread } = get();
+    const { threads, unreadCounts, activeThread, conversations } = get();
     const threadId = message.threadId;
     let thread = [...(threads[threadId] ?? [])];
     const isActive = activeThread === threadId;
@@ -88,12 +97,17 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
       );
     }
 
+    const updatedConversations = conversations.map((c) =>
+      c.id === threadId ? { ...c, lastMessageAt: message.timestamp } : c
+    );
+
     set({
       threads: { ...threads, [threadId]: [...thread, message] },
       unreadCounts: {
         ...unreadCounts,
         [threadId]: isActive ? 0 : (unreadCounts[threadId] ?? 0) + 1,
       },
+      conversations: updatedConversations,
     });
     debouncedPersistMessages(get);
   },
@@ -136,6 +150,78 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
     debouncedPersistMessages(get);
   },
 
+  addConversation: (conversation) => {
+    set((state) => ({ conversations: [...state.conversations, conversation] }));
+    debouncedPersistMessages(get);
+  },
+
+  findOrCreateDm: (participants) => {
+    const sorted = [...participants].sort();
+    const existing = get().conversations.find(
+      (c) => c.type === 'dm' && c.locked &&
+        c.participants.length === sorted.length &&
+        [...c.participants].sort().every((p, i) => p === sorted[i])
+    );
+    if (existing) return existing;
+
+    const conv: Conversation = {
+      id: `dm-${sorted.join('-')}`,
+      type: 'dm',
+      participants: sorted,
+      locked: true,
+      createdAt: Date.now(),
+      lastMessageAt: Date.now(),
+    };
+    get().addConversation(conv);
+    return conv;
+  },
+
+  updateConversation: (id, patch) => {
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.id === id ? { ...c, ...patch } : c
+      ),
+    }));
+    debouncedPersistMessages(get);
+  },
+
+  migrateToConversations: () => {
+    const { threads, channels, conversations } = get();
+    if (conversations.length > 0) return;
+
+    const newConvs: Conversation[] = [];
+    const channelIds = new Set(channels.map((c) => c.id));
+
+    for (const threadId of Object.keys(threads)) {
+      if (channelIds.has(threadId)) continue;
+      const msgs = threads[threadId];
+      const lastMsg = msgs[msgs.length - 1];
+      newConvs.push({
+        id: threadId,
+        type: 'dm',
+        participants: [threadId],
+        locked: true,
+        createdAt: msgs[0]?.timestamp ?? Date.now(),
+        lastMessageAt: lastMsg?.timestamp ?? Date.now(),
+      });
+    }
+
+    for (const ch of channels) {
+      newConvs.push({
+        id: ch.id,
+        type: 'channel',
+        name: ch.name,
+        participants: ch.agentIds,
+        locked: false,
+        createdAt: ch.createdAt,
+        lastMessageAt: threads[ch.id]?.slice(-1)[0]?.timestamp ?? ch.createdAt,
+      });
+    }
+
+    set({ conversations: newConvs });
+    debouncedPersistMessages(get);
+  },
+
   removeMessagesByTicketId: (ticketId) => {
     const { threads } = get();
     const updated: Record<string, DmMessage[]> = {};
@@ -153,7 +239,7 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
 
   resetForProjectSwitch: () => {
     if (msgPersistTimer) { clearTimeout(msgPersistTimer); msgPersistTimer = null; }
-    set({ threads: {}, channels: [], unreadCounts: {}, activeThread: null, openThreadParentId: null, loaded: false });
+    set({ threads: {}, channels: [], conversations: [], unreadCounts: {}, activeThread: null, openThreadParentId: null, loaded: false });
   },
 }));
 
