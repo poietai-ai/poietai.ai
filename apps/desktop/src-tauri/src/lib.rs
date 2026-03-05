@@ -13,8 +13,8 @@ use std::io::Write;
 use log::{error, info};
 
 use agent::state::{
-    all_agents, get_agent, new_store, set_chatting, set_status, upsert_agent, AgentState,
-    AgentStatus, StateStore,
+    all_agents, get_agent, new_store, remove_agent, set_chatting, set_status,
+    update_agent_fields, upsert_agent, AgentState, AgentStatus, StateStore,
 };
 /// Global app state — injected into Tauri commands via State<AppState>.
 pub struct AppState {
@@ -34,6 +34,7 @@ fn create_agent(
     role: String,
     personality: String,
     chat_session_id: Option<String>,
+    initiative: Option<String>,
 ) -> Result<(), String> {
     let agent = AgentState {
         id: id.clone(),
@@ -47,6 +48,7 @@ fn create_agent(
         pr_number: None,
         chat_session_id,
         chatting: false,
+        initiative,
     };
     upsert_agent(&state.agents, agent);
     Ok(())
@@ -56,6 +58,38 @@ fn create_agent(
 #[tauri::command]
 fn get_all_agents(state: State<'_, AppState>) -> Vec<AgentState> {
     all_agents(&state.agents)
+}
+
+/// Update an existing agent's name, role, or personality.
+/// Only the provided (Some) fields are changed; None fields are left as-is.
+#[tauri::command]
+fn update_agent(
+    state: State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    role: Option<String>,
+    personality: Option<String>,
+    initiative: Option<String>,
+) -> Result<(), String> {
+    if update_agent_fields(&state.agents, &id, name, role, personality, initiative) {
+        Ok(())
+    } else {
+        Err(format!("agent '{}' not found", id))
+    }
+}
+
+/// Delete an agent from the runtime state.
+/// The frontend is responsible for also removing the agent from persisted agents.json.
+#[tauri::command]
+fn delete_agent(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    if remove_agent(&state.agents, &id) {
+        Ok(())
+    } else {
+        Err(format!("agent '{}' not found", id))
+    }
 }
 
 /// Scan a folder and return git repo information.
@@ -314,6 +348,13 @@ async fn chat_agent(
             "mcp__poietai__get_ticket_details".to_string(),
             "mcp__poietai__ask_human".to_string(),
             "mcp__poietai__status_update".to_string(),
+            "mcp__poietai__present_choices".to_string(),
+            "mcp__poietai__confirm_action".to_string(),
+            "mcp__poietai__update_ticket".to_string(),
+            "mcp__poietai__create_ticket".to_string(),
+            "mcp__poietai__complete_phase".to_string(),
+            "mcp__poietai__claim_ticket".to_string(),
+            "mcp__poietai__relay_answer".to_string(),
         ],
         working_dir,
         env: vec![],
@@ -525,6 +566,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             create_agent,
+            update_agent,
+            delete_agent,
             scan_folder,
             get_all_agents,
             get_worktree_diff,

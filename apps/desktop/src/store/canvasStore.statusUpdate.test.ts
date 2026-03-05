@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
+import { createLayoutState, rebuildLayoutState } from '../lib/canvasLayout';
 
 describe('addStatusUpdateNode', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ nodes: [], edges: [], activeTicketId: 'ticket-1' });
+    useCanvasStore.setState({ nodes: [], edges: [], activeTicketId: 'ticket-1', layoutState: createLayoutState() });
   });
 
   it('adds a status_update node', () => {
@@ -48,32 +49,34 @@ describe('addStatusUpdateNode', () => {
     expect(edges[0].target).toContain('agent-1');
   });
 
-  it('positions node using NODE_HORIZONTAL_SPACING', () => {
-    // Seed two non-ghost nodes so the new one is at index 2
+  it('positions node using layout engine', () => {
+    // Seed two non-ghost nodes so the new one is placed after them
+    const seededNodes = [
+      {
+        id: 'n1',
+        type: 'thought',
+        position: { x: 0, y: 80 },
+        data: { nodeType: 'thought' as const, agentId: '', ticketId: 'ticket-1', content: '', items: [] },
+      },
+      {
+        id: 'n2',
+        type: 'thought',
+        position: { x: 424, y: 80 },
+        data: { nodeType: 'thought' as const, agentId: '', ticketId: 'ticket-1', content: '', items: [] },
+      },
+    ];
     useCanvasStore.setState({
-      nodes: [
-        {
-          id: 'n1',
-          type: 'thought',
-          position: { x: 0, y: 80 },
-          data: { nodeType: 'thought' as const, agentId: '', ticketId: 'ticket-1', content: '', items: [] },
-        },
-        {
-          id: 'n2',
-          type: 'thought',
-          position: { x: 340, y: 80 },
-          data: { nodeType: 'thought' as const, agentId: '', ticketId: 'ticket-1', content: '', items: [] },
-        },
-      ],
+      nodes: seededNodes,
       edges: [],
       activeTicketId: 'ticket-1',
+      layoutState: rebuildLayoutState(seededNodes),
     });
 
     useCanvasStore.getState().addStatusUpdateNode('agent-1', 'Deploying...');
     const nodes = useCanvasStore.getState().nodes;
     const statusNode = nodes.find((n) => n.data.nodeType === 'status_update');
     expect(statusNode).toBeDefined();
-    // 2 existing non-ghost nodes * 340 spacing = 680
-    expect(statusNode!.position.x).toBe(680);
+    // n2 at x=424, width=384, gap=40 → next at 848
+    expect(statusNode!.position.x).toBe(848);
   });
 });

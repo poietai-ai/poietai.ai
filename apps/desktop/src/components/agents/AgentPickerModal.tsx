@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { X, Circle, Loader2, MessageCircleQuestion, Eye, CircleAlert } from 'lucide-react';
 import { useAgentStore, type Agent } from '../../store/agentStore';
 import { useProjectStore } from '../../store/projectStore';
-import { CreateAgentModal } from './CreateAgentModal';
+import { AgentFormModal } from './AgentFormModal';
 
 function StatusIcon({ status }: { status: Agent['status'] }) {
   switch (status) {
@@ -57,7 +57,7 @@ export function AgentPickerModal({ onSelect, onClose }: Props) {
   }
 
   if (showCreate) {
-    return <CreateAgentModal onClose={() => setShowCreate(false)} />;
+    return <AgentFormModal onClose={() => setShowCreate(false)} />;
   }
 
   if (pendingAgent && isMultiRepo) {

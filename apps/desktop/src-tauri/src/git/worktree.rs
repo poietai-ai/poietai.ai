@@ -72,6 +72,35 @@ pub fn create(config: &WorktreeConfig) -> Result<Worktree> {
         .current_dir(&config.repo_root)
         .output();
 
+    // If another worktree has the target branch checked out (from a previous run
+    // with a different ticket UUID but the same slug), remove it first.
+    // `git worktree add -B` won't work if the branch is checked out elsewhere.
+    if let Ok(list_out) = Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .current_dir(&config.repo_root)
+        .output()
+    {
+        let list_text = String::from_utf8_lossy(&list_out.stdout);
+        let mut current_wt_path: Option<String> = None;
+        for line in list_text.lines() {
+            if let Some(p) = line.strip_prefix("worktree ") {
+                current_wt_path = Some(p.to_string());
+            } else if let Some(b) = line.strip_prefix("branch refs/heads/") {
+                if b == branch {
+                    // This worktree has our branch — remove it
+                    if let Some(ref wt_path) = current_wt_path {
+                        let _ = Command::new("git")
+                            .args(["worktree", "remove", "--force", wt_path])
+                            .current_dir(&config.repo_root)
+                            .output();
+                    }
+                }
+            } else if line.is_empty() {
+                current_wt_path = None;
+            }
+        }
+    }
+
     let output = Command::new("git")
         .arg("worktree")
         .arg("add")

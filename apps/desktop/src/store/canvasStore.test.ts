@@ -22,11 +22,12 @@ test('first node is placed at x=0, y=80', () => {
   expect(nodes[0].position).toEqual({ x: 0, y: 80 });
 });
 
-test('second node is placed at x=340, y=80', () => {
+test('second node is placed with correct gap after first', () => {
   useCanvasStore.getState().addNodeFromEvent(thoughtEvent('n1'));
   useCanvasStore.getState().addNodeFromEvent(thoughtEvent('n2'));
   const { nodes } = useCanvasStore.getState();
-  expect(nodes[1].position).toEqual({ x: 340, y: 80 });
+  // thought node is 384px wide + 40px gap = 424px
+  expect(nodes[1].position).toEqual({ x: 424, y: 80 });
 });
 
 test('onNodesChange updates node positions', () => {
@@ -163,7 +164,7 @@ describe('addValidateResultNode', () => {
     const validateNode = nodes.find((n) => n.type === 'validate_result');
     expect(validateNode).toBeDefined();
     expect(validateNode?.position.y).toBe(80);
-    expect(validateNode?.position.x).toBe(340); // one execution node before it
+    expect(validateNode?.position.x).toBe(424); // thought(384) + gap(40)
     expect(validateNode?.data.validateSummary).toEqual({ verified: 3, critical: 0, advisory: 1 });
   });
 

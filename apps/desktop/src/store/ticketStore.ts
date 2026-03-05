@@ -35,6 +35,7 @@ export interface Ticket {
   status: TicketStatus;
   assignments: Assignment[];
   acceptanceCriteria: string[];
+  tags: string[];
   phases: TicketPhase[];
   activePhase?: TicketPhase;
   artifacts: Partial<Record<TicketPhase, Artifact>>;
@@ -48,7 +49,8 @@ interface TicketStore {
   isLoading: boolean;
 
   loadFromDisk: () => Promise<void>;
-  addTicket: (input: { title: string; description: string; complexity: number; acceptanceCriteria: string[] }) => void;
+  addTicket: (input: { title: string; description: string; complexity: number; acceptanceCriteria: string[]; tags?: string[] }) => void;
+  updateTicket: (id: string, patch: Partial<Pick<Ticket, 'title' | 'description' | 'complexity' | 'acceptanceCriteria' | 'tags'>>) => void;
   updateTicketStatus: (id: string, status: TicketStatus) => TicketStatus | undefined;
   assignTicket: (ticketId: string, assignment: Assignment) => void;
   selectTicket: (id: string | null) => void;
@@ -113,14 +115,19 @@ export const useTicketStore = create<TicketStore>((set, get) => ({
       const selectedTicketId = saved?.selectedTicketId ?? null;
       let nextTicketNumber = saved?.nextTicketNumber ?? 0;
 
-      // Migrate legacy tickets that lack a number field
+      // Migrate legacy tickets that lack a number or tags field
       let migrated = false;
       const migratedTickets = tickets.map((t: Ticket, i: number) => {
+        let patched = t;
         if (typeof t.number !== 'number') {
           migrated = true;
-          return { ...t, number: i + 1 };
+          patched = { ...patched, number: i + 1 };
         }
-        return t;
+        if (!Array.isArray(t.tags)) {
+          migrated = true;
+          patched = { ...patched, tags: [] };
+        }
+        return patched;
       });
       if (nextTicketNumber === 0 || migrated) {
         nextTicketNumber = migratedTickets.length > 0
@@ -146,12 +153,20 @@ export const useTicketStore = create<TicketStore>((set, get) => ({
         status: 'backlog',
         assignments: [],
         acceptanceCriteria: input.acceptanceCriteria,
+        tags: input.tags ?? [],
         phases,
         activePhase: phases[0],
         artifacts: {},
       };
       return { tickets: [...state.tickets, ticket], nextTicketNumber: state.nextTicketNumber + 1 };
     });
+    persistTickets(get);
+  },
+
+  updateTicket: (id, patch) => {
+    set((s) => ({
+      tickets: s.tickets.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+    }));
     persistTickets(get);
   },
 

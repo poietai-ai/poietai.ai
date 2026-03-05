@@ -323,6 +323,121 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                             },
                             "required": ["ticket_number", "agent_id"]
                         }
+                    },
+                    {
+                        "name": "update_ticket",
+                        "description": "Update fields on an existing ticket. You can change title, description, acceptance criteria, tags, complexity, or status.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticket_number": {
+                                    "type": "integer",
+                                    "description": "The ticket number to update"
+                                },
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID"
+                                },
+                                "title": { "type": "string", "description": "New title" },
+                                "description": { "type": "string", "description": "New description" },
+                                "acceptance_criteria": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "New acceptance criteria list"
+                                },
+                                "tags": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "New tags list"
+                                },
+                                "complexity": { "type": "integer", "description": "Complexity 1-10" },
+                                "status": { "type": "string", "description": "New status (backlog, refined, assigned, in_progress, in_review, shipped, blocked)" }
+                            },
+                            "required": ["ticket_number", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "create_ticket",
+                        "description": "Create a new ticket on the board.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "title": {
+                                    "type": "string",
+                                    "description": "Ticket title"
+                                },
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID"
+                                },
+                                "description": { "type": "string", "description": "Ticket description" },
+                                "complexity": { "type": "integer", "description": "Complexity 1-10 (default 3)" },
+                                "acceptance_criteria": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "Acceptance criteria list"
+                                }
+                            },
+                            "required": ["title", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "complete_phase",
+                        "description": "Signal that the current phase is complete, optionally attaching an artifact. Advances the ticket to its next phase.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticket_number": {
+                                    "type": "integer",
+                                    "description": "The ticket number"
+                                },
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID"
+                                },
+                                "artifact": {
+                                    "type": "string",
+                                    "description": "Optional artifact content (e.g. design doc, plan, etc.)"
+                                }
+                            },
+                            "required": ["ticket_number", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "claim_ticket",
+                        "description": "Claim and start working on a ticket. Assigns you to the ticket and kicks off the full development workflow with worktree, phases, etc.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticket_number": {
+                                    "type": "integer",
+                                    "description": "The ticket number to claim"
+                                },
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID"
+                                }
+                            },
+                            "required": ["ticket_number", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "relay_answer",
+                        "description": "Relay the user's answer back to your coding session that is waiting for input. Call this after the user answers a question from your coding work.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID"
+                                },
+                                "answer": {
+                                    "type": "string",
+                                    "description": "The user's answer to relay back"
+                                }
+                            },
+                            "required": ["agent_id", "answer"]
+                        }
                     }
                 ]
             }
@@ -510,7 +625,9 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                     }
                 }
 
-                "list_tickets" | "get_ticket_details" => {
+                "list_tickets" | "get_ticket_details"
+                | "update_ticket" | "create_ticket" | "complete_phase"
+                | "claim_ticket" => {
                     let agent_id = args.get("agent_id")
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
@@ -524,27 +641,73 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                         .await
                         .insert(request_id.clone(), tx);
 
-                    if tool_name == "get_ticket_details" {
-                        let ticket_number = args.get("ticket_number")
-                            .and_then(|v| v.as_i64())
-                            .unwrap_or(0);
+                    match tool_name {
+                        "get_ticket_details" => {
+                            let ticket_number = args.get("ticket_number")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
 
-                        let _ = state.app.emit("agent-get-ticket-details", json!({
-                            "request_id": request_id,
-                            "agent_id": agent_id,
-                            "ticket_number": ticket_number,
-                        }));
-                    } else {
-                        let status_filter = args.get("status_filter")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
+                            let _ = state.app.emit("agent-get-ticket-details", json!({
+                                "request_id": request_id,
+                                "agent_id": agent_id,
+                                "ticket_number": ticket_number,
+                            }));
+                        }
+                        "update_ticket" => {
+                            let _ = state.app.emit("agent-update-ticket", json!({
+                                "request_id": request_id,
+                                "agent_id": agent_id,
+                                "ticket_number": args.get("ticket_number").and_then(|v| v.as_i64()).unwrap_or(0),
+                                "title": args.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+                                "description": args.get("description").and_then(|v| v.as_str()).unwrap_or(""),
+                                "acceptance_criteria": args.get("acceptance_criteria").cloned().unwrap_or(json!([])),
+                                "tags": args.get("tags").cloned().unwrap_or(json!([])),
+                                "complexity": args.get("complexity").and_then(|v| v.as_i64()).unwrap_or(0),
+                                "status": args.get("status").and_then(|v| v.as_str()).unwrap_or(""),
+                            }));
+                        }
+                        "create_ticket" => {
+                            let _ = state.app.emit("agent-create-ticket", json!({
+                                "request_id": request_id,
+                                "agent_id": agent_id,
+                                "title": args.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled"),
+                                "description": args.get("description").and_then(|v| v.as_str()).unwrap_or(""),
+                                "complexity": args.get("complexity").and_then(|v| v.as_i64()).unwrap_or(3),
+                                "acceptance_criteria": args.get("acceptance_criteria").cloned().unwrap_or(json!([])),
+                            }));
+                        }
+                        "complete_phase" => {
+                            let _ = state.app.emit("agent-complete-phase", json!({
+                                "request_id": request_id,
+                                "agent_id": agent_id,
+                                "ticket_number": args.get("ticket_number").and_then(|v| v.as_i64()).unwrap_or(0),
+                                "artifact": args.get("artifact").and_then(|v| v.as_str()).unwrap_or(""),
+                            }));
+                        }
+                        "claim_ticket" => {
+                            let ticket_number = args.get("ticket_number")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
 
-                        let _ = state.app.emit("agent-list-tickets", json!({
-                            "request_id": request_id,
-                            "agent_id": agent_id,
-                            "status_filter": status_filter,
-                        }));
+                            let _ = state.app.emit("agent-claim-ticket", json!({
+                                "request_id": request_id,
+                                "agent_id": agent_id,
+                                "ticket_number": ticket_number,
+                            }));
+                        }
+                        // "list_tickets"
+                        _ => {
+                            let status_filter = args.get("status_filter")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            let _ = state.app.emit("agent-list-tickets", json!({
+                                "request_id": request_id,
+                                "agent_id": agent_id,
+                                "status_filter": status_filter,
+                            }));
+                        }
                     }
 
                     // Short timeout — frontend auto-responds instantly
@@ -574,6 +737,39 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                             }
                         })),
                     }
+                }
+
+                "relay_answer" => {
+                    let agent_id = args.get("agent_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let answer = args.get("answer")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    let tx = {
+                        let mut pending = state.pending_questions.lock().await;
+                        pending.remove(&agent_id)
+                    };
+
+                    let result_text = match tx {
+                        Some(sender) => {
+                            let _ = sender.send(answer);
+                            "Answer relayed to your coding session."
+                        }
+                        None => "No pending question found — it may have timed out or already been answered."
+                    };
+
+                    Some(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{ "type": "text", "text": result_text }],
+                            "isError": false
+                        }
+                    }))
                 }
 
                 _ => Some(json!({
@@ -685,6 +881,76 @@ mod tests {
                             },
                             "required": ["ticket_number", "agent_id"]
                         }
+                    },
+                    {
+                        "name": "update_ticket",
+                        "description": "Update fields on an existing ticket.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticket_number": { "type": "integer" },
+                                "agent_id": { "type": "string" },
+                                "title": { "type": "string" },
+                                "description": { "type": "string" },
+                                "acceptance_criteria": { "type": "array" },
+                                "tags": { "type": "array" },
+                                "complexity": { "type": "integer" },
+                                "status": { "type": "string" }
+                            },
+                            "required": ["ticket_number", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "create_ticket",
+                        "description": "Create a new ticket on the board.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "title": { "type": "string" },
+                                "agent_id": { "type": "string" },
+                                "description": { "type": "string" },
+                                "complexity": { "type": "integer" },
+                                "acceptance_criteria": { "type": "array" }
+                            },
+                            "required": ["title", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "complete_phase",
+                        "description": "Signal phase completion.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticket_number": { "type": "integer" },
+                                "agent_id": { "type": "string" },
+                                "artifact": { "type": "string" }
+                            },
+                            "required": ["ticket_number", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "claim_ticket",
+                        "description": "Claim and start working on a ticket.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticket_number": { "type": "integer" },
+                                "agent_id": { "type": "string" }
+                            },
+                            "required": ["ticket_number", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "relay_answer",
+                        "description": "Relay the user's answer back to your coding session.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "agent_id": { "type": "string" },
+                                "answer": { "type": "string" }
+                            },
+                            "required": ["agent_id", "answer"]
+                        }
                     }
                 ]
             }
@@ -707,7 +973,7 @@ mod tests {
     fn tools_list_contains_ask_human() {
         let resp = tools_list_response(json!(2));
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 6);
+        assert_eq!(tools.len(), 11);
         assert_eq!(tools[0]["name"], "ask_human");
     }
 
@@ -821,6 +1087,64 @@ mod tests {
         assert!(result.is_ok());
         let received = rx.await.unwrap();
         assert_eq!(received, "#1: Fix bug [in_progress]");
+    }
+
+    #[test]
+    fn tools_list_contains_update_ticket() {
+        let resp = tools_list_response(json!(2));
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools[6]["name"], "update_ticket");
+        let required = tools[6]["inputSchema"]["required"]
+            .as_array()
+            .unwrap();
+        let required_strs: Vec<&str> =
+            required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_strs.contains(&"ticket_number"));
+        assert!(required_strs.contains(&"agent_id"));
+        assert!(!required_strs.contains(&"title"));
+    }
+
+    #[test]
+    fn tools_list_contains_create_ticket() {
+        let resp = tools_list_response(json!(2));
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools[7]["name"], "create_ticket");
+        let required = tools[7]["inputSchema"]["required"]
+            .as_array()
+            .unwrap();
+        let required_strs: Vec<&str> =
+            required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_strs.contains(&"title"));
+        assert!(required_strs.contains(&"agent_id"));
+    }
+
+    #[test]
+    fn tools_list_contains_complete_phase() {
+        let resp = tools_list_response(json!(2));
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools[8]["name"], "complete_phase");
+        let required = tools[8]["inputSchema"]["required"]
+            .as_array()
+            .unwrap();
+        let required_strs: Vec<&str> =
+            required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_strs.contains(&"ticket_number"));
+        assert!(required_strs.contains(&"agent_id"));
+        assert!(!required_strs.contains(&"artifact"));
+    }
+
+    #[test]
+    fn tools_list_contains_claim_ticket() {
+        let resp = tools_list_response(json!(2));
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools[9]["name"], "claim_ticket");
+        let required = tools[9]["inputSchema"]["required"]
+            .as_array()
+            .unwrap();
+        let required_strs: Vec<&str> =
+            required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_strs.contains(&"ticket_number"));
+        assert!(required_strs.contains(&"agent_id"));
     }
 
     #[tokio::test]

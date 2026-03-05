@@ -155,6 +155,74 @@ describe('deleteTicket', () => {
   });
 });
 
+describe('addTicket with tags', () => {
+  it('stores tags when provided', () => {
+    useTicketStore.getState().addTicket({
+      title: 'Tagged', description: '', complexity: 2, acceptanceCriteria: [], tags: ['ui', 'bug'],
+    });
+    expect(useTicketStore.getState().tickets[0].tags).toEqual(['ui', 'bug']);
+  });
+
+  it('defaults tags to empty array when omitted', () => {
+    useTicketStore.getState().addTicket({
+      title: 'No tags', description: '', complexity: 2, acceptanceCriteria: [],
+    });
+    expect(useTicketStore.getState().tickets[0].tags).toEqual([]);
+  });
+});
+
+describe('updateTicket', () => {
+  it('updates title and description', () => {
+    useTicketStore.getState().addTicket({
+      title: 'Original', description: 'desc', complexity: 3, acceptanceCriteria: [],
+    });
+    const id = useTicketStore.getState().tickets[0].id;
+    useTicketStore.getState().updateTicket(id, { title: 'Updated', description: 'new desc' });
+    const t = useTicketStore.getState().tickets[0];
+    expect(t.title).toBe('Updated');
+    expect(t.description).toBe('new desc');
+  });
+
+  it('updates complexity and recalculates nothing (phases stay)', () => {
+    useTicketStore.getState().addTicket({
+      title: 'T', description: '', complexity: 2, acceptanceCriteria: [],
+    });
+    const id = useTicketStore.getState().tickets[0].id;
+    const originalPhases = useTicketStore.getState().tickets[0].phases;
+    useTicketStore.getState().updateTicket(id, { complexity: 8 });
+    const t = useTicketStore.getState().tickets[0];
+    expect(t.complexity).toBe(8);
+    expect(t.phases).toEqual(originalPhases); // phases are NOT recalculated
+  });
+
+  it('updates tags', () => {
+    useTicketStore.getState().addTicket({
+      title: 'T', description: '', complexity: 2, acceptanceCriteria: [],
+    });
+    const id = useTicketStore.getState().tickets[0].id;
+    useTicketStore.getState().updateTicket(id, { tags: ['frontend', 'urgent'] });
+    expect(useTicketStore.getState().tickets[0].tags).toEqual(['frontend', 'urgent']);
+  });
+
+  it('updates acceptance criteria', () => {
+    useTicketStore.getState().addTicket({
+      title: 'T', description: '', complexity: 2, acceptanceCriteria: ['AC1'],
+    });
+    const id = useTicketStore.getState().tickets[0].id;
+    useTicketStore.getState().updateTicket(id, { acceptanceCriteria: ['AC1', 'AC2'] });
+    expect(useTicketStore.getState().tickets[0].acceptanceCriteria).toEqual(['AC1', 'AC2']);
+  });
+
+  it('does not affect other tickets', () => {
+    useTicketStore.getState().addTicket({ title: 'A', description: '', complexity: 1, acceptanceCriteria: [] });
+    useTicketStore.getState().addTicket({ title: 'B', description: '', complexity: 1, acceptanceCriteria: [] });
+    const idA = useTicketStore.getState().tickets[0].id;
+    useTicketStore.getState().updateTicket(idA, { title: 'A-updated' });
+    expect(useTicketStore.getState().tickets[0].title).toBe('A-updated');
+    expect(useTicketStore.getState().tickets[1].title).toBe('B');
+  });
+});
+
 describe('updateTicketStatus', () => {
   it('returns the old status', () => {
     useTicketStore.getState().addTicket({ title: 'T', description: '', complexity: 2, acceptanceCriteria: [] });

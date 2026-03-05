@@ -19,6 +19,10 @@ export interface CanvasNodePayload {
   group_id?: string;
 }
 
+export type CanvasPhase =
+  | 'brief' | 'design' | 'review' | 'plan' | 'build'
+  | 'validate' | 'qa' | 'security' | 'ship';
+
 // Visual node types rendered by @xyflow/react
 export type CanvasNodeType =
   | 'thought'
@@ -38,7 +42,8 @@ export type CanvasNodeType =
   | 'review_synthesis'
   | 'status_update'
   | 'fan_out'
-  | 'fan_in';
+  | 'fan_in'
+  | 'phase_box';
 
 export interface CanvasNodeData extends Record<string, unknown> {
   nodeType: CanvasNodeType;
@@ -60,6 +65,13 @@ export interface CanvasNodeData extends Record<string, unknown> {
   activated?: boolean;    // true = agent has touched this file
   taskId?: string;        // matches PlanTask.id
   action?: 'create' | 'modify' | 'delete';
+  // Phase grouping
+  phase?: CanvasPhase;
+  isPhaseBox?: boolean;
+  boxWidth?: number;
+  boxHeight?: number;
+  bgColor?: string;
+  borderColor?: string;
   // M3: validate result summary
   validateSummary?: { verified: number; critical: number; advisory: number };
   // M4: QA result summary

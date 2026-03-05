@@ -9,6 +9,9 @@ import { QaResultNode } from './QaResultNode';
 import { SecurityResultNode } from './SecurityResultNode';
 import { ReviewSynthesisNode } from './ReviewSynthesisNode';
 import { StatusUpdateNode } from './StatusUpdateNode';
+import { FanOutNode } from './FanOutNode';
+import { FanInNode } from './FanInNode';
+import { PhaseBoxNode } from './PhaseBoxNode';
 
 // Maps node type strings (from Zustand) to React components.
 // Passed to ReactFlow as the `nodeTypes` prop.
@@ -26,4 +29,7 @@ export const nodeTypes = {
   security_result: SecurityResultNode,
   review_synthesis: ReviewSynthesisNode,
   status_update: StatusUpdateNode,
+  fan_out: FanOutNode,
+  fan_in: FanInNode,
+  phase_box: PhaseBoxNode,
 } as const;

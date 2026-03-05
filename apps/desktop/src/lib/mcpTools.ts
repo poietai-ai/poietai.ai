@@ -11,4 +11,9 @@ export const MCP_TOOLS: McpToolDef[] = [
   { name: 'status_update', description: 'Request a status update', slashCommand: true },
   { name: 'present_choices', description: 'Present options to the user', slashCommand: false },
   { name: 'confirm_action', description: 'Request approval for an action', slashCommand: false },
+  { name: 'update_ticket', description: 'Update a ticket\'s fields', slashCommand: true },
+  { name: 'create_ticket', description: 'Create a new ticket', slashCommand: true },
+  { name: 'complete_phase', description: 'Signal phase completion', slashCommand: false },
+  { name: 'claim_ticket', description: 'Claim and start working on a ticket', slashCommand: false },
+  { name: 'relay_answer', description: 'Relay user answer to your coding session', slashCommand: false },
 ];

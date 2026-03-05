@@ -16,9 +16,10 @@ export interface Agent {
   pr_number?: number;
   chat_session_id?: string;
   chatting?: boolean;
+  initiative?: string | null;
 }
 
-type AgentIdentity = Pick<Agent, 'id' | 'name' | 'role' | 'personality' | 'chat_session_id'>;
+type AgentIdentity = Pick<Agent, 'id' | 'name' | 'role' | 'personality' | 'chat_session_id' | 'initiative'>;
 
 let _store: Store | null = null;
 async function getStore() {
@@ -35,6 +36,8 @@ interface AgentStore {
   stopPolling: () => void;
   persistAgents: () => Promise<void>;
   restoreAgents: () => Promise<void>;
+  updateAgent: (id: string, patch: { name?: string; role?: string; personality?: string; initiative?: string | null }) => Promise<void>;
+  deleteAgent: (id: string) => Promise<void>;
 }
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
@@ -66,7 +69,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   persistAgents: async () => {
     const store = await getStore();
     const identities: AgentIdentity[] = get().agents.map(
-      ({ id, name, role, personality, chat_session_id }) => ({ id, name, role, personality, chat_session_id })
+      ({ id, name, role, personality, chat_session_id, initiative }) => ({ id, name, role, personality, chat_session_id, initiative })
     );
     await store.set('agents', identities);
     await store.save();
@@ -75,13 +78,31 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   restoreAgents: async () => {
     const store = await getStore();
     const saved = (await store.get<AgentIdentity[]>('agents')) ?? [];
-    for (const { id, name, role, personality, chat_session_id } of saved) {
+    for (const { id, name, role, personality, chat_session_id, initiative } of saved) {
       try {
-        await invoke('create_agent', { id, name, role, personality, chatSessionId: chat_session_id ?? null });
+        await invoke('create_agent', { id, name, role, personality, chatSessionId: chat_session_id ?? null, initiative: initiative ?? null });
       } catch {
         // Already exists in this session — skip.
       }
     }
     await get().refresh();
+  },
+
+  updateAgent: async (id, patch) => {
+    await invoke('update_agent', {
+      id,
+      name: patch.name ?? null,
+      role: patch.role ?? null,
+      personality: patch.personality ?? null,
+      initiative: patch.initiative !== undefined ? patch.initiative : null,
+    });
+    await get().refresh();
+    await get().persistAgents();
+  },
+
+  deleteAgent: async (id) => {
+    await invoke('delete_agent', { id });
+    await get().refresh();
+    await get().persistAgents();
   },
 }));

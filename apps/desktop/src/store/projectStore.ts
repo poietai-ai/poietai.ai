@@ -50,6 +50,10 @@ function migrateProject(raw: Record<string, unknown>): Project {
   };
 }
 
+// Shared promise so duplicate callers (App.tsx + ProjectSwitcher) wait for the
+// same in-flight load instead of getting an immediately-resolved undefined.
+let loadInflight: Promise<void> | null = null;
+
 export const useProjectStore = create<ProjectStore>((set, get) => ({
   projects: [],
   activeProjectId: null,
@@ -57,22 +61,29 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   isLoading: false,
 
   loadFromDisk: async () => {
-    if (get().loaded || get().isLoading) return;
-    set({ isLoading: true });
-    const store = await getStore();
-    const raw = (await store.get<Record<string, unknown>[]>('projects')) ?? [];
+    if (get().loaded) return;
+    if (loadInflight) return loadInflight;
 
-    // Migrate any legacy projects (repoRoot string → repos array)
-    const needsMigration = raw.some((r) => !Array.isArray(r.repos));
-    const projects = raw.map(migrateProject);
+    loadInflight = (async () => {
+      set({ isLoading: true });
+      const store = await getStore();
+      const raw = (await store.get<Record<string, unknown>[]>('projects')) ?? [];
 
-    // Write back migrated data so Repo.id values are stable across sessions
-    if (needsMigration) {
-      await store.set('projects', projects);
-    }
+      // Migrate any legacy projects (repoRoot string → repos array)
+      const needsMigration = raw.some((r) => !Array.isArray(r.repos));
+      const projects = raw.map(migrateProject);
 
-    const activeProjectId = (await store.get<string>('activeProjectId')) ?? null;
-    set({ projects, activeProjectId, loaded: true, isLoading: false });
+      // Write back migrated data so Repo.id values are stable across sessions
+      if (needsMigration) {
+        await store.set('projects', projects);
+      }
+
+      const activeProjectId = (await store.get<string>('activeProjectId')) ?? null;
+      set({ projects, activeProjectId, loaded: true, isLoading: false });
+      loadInflight = null;
+    })();
+
+    return loadInflight;
   },
 
   addProject: async (project) => {

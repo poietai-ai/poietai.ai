@@ -2,11 +2,12 @@ import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode, type
 import { invoke } from '@tauri-apps/api/core';
 import { Send, Check, XCircle, Plus, Hash, MessageSquare, X, ArrowDown } from 'lucide-react';
 import { useMessageStore, getTopLevelMessages, getRepliesForParent } from '../../store/messageStore';
-import { useAgentStore } from '../../store/agentStore';
+import { useAgentStore, type Agent } from '../../store/agentStore';
 import { useTicketStore } from '../../store/ticketStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useChatSessionStore } from '../../store/chatSessionStore';
 import { buildChatPrompt } from '../../lib/chatPromptBuilder';
+import { AgentFormModal } from '../agents/AgentFormModal';
 import { Markdown } from '../canvas/nodes/Markdown';
 import { parseTokens } from '../../lib/tokenParser';
 import { MCP_TOOLS } from '../../lib/mcpTools';
@@ -564,6 +565,9 @@ export function DmList() {
   const [inputText, setInputText] = useState('');
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showNewChannel, setShowNewChannel] = useState(false);
+  const [agentContextMenu, setAgentContextMenu] = useState<{ x: number; y: number; agent: Agent } | null>(null);
+  const [editAgent, setEditAgent] = useState<Agent | null>(null);
+  const [showChannelMembers, setShowChannelMembers] = useState(false);
   const [autocomplete, setAutocomplete] = useState<{
     active: boolean;
     mode: AutocompleteMode;
@@ -586,11 +590,25 @@ export function DmList() {
   const activeMessages = activeThread ? (threads[activeThread] ?? []) : [];
   const topLevelMessages = useMemo(() => getTopLevelMessages(activeMessages), [activeMessages]);
 
-  // Typing indicator — check if the active DM agent is working
+  // Find the most recent unresolved blocking question in the active thread
+  const pendingQuestion = useMemo(() => {
+    if (!activeThread || isChannel) return null;
+    const msgs = threads[activeThread] ?? [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if ((m.type === 'question' || m.type === 'choices' || m.type === 'confirm') && !m.resolved) {
+        return m;
+      }
+    }
+    return null;
+  }, [activeThread, isChannel, threads]);
+
+  // Typing indicator — only show when the agent is actively responding in chat,
+  // NOT when a subagent is working on a ticket in the background
   const activeAgent = activeThread && !isChannel
     ? agents.find((a) => a.id === activeThread)
     : null;
-  const isAgentTyping = activeAgent?.status === 'working' || activeAgent?.chatting === true;
+  const isAgentTyping = activeAgent?.chatting === true;
 
   // Thread panel data
   const threadParentMsg = openThreadParentId
@@ -618,6 +636,7 @@ export function DmList() {
   // Reset to bottom when switching threads
   useEffect(() => {
     setIsAtBottom(true);
+    setShowChannelMembers(false);
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -656,17 +675,29 @@ export function DmList() {
     const msg = activeMessages.find((m) => m.id === msgId);
     if (!msg) return;
 
+    // For confirm messages, wrap plain-text replies as JSON
+    let finalReply = reply;
+    if (msg.type === 'confirm') {
+      try {
+        JSON.parse(reply); // already valid JSON — use as-is
+      } catch {
+        const rejectWords = /^(no|reject|deny|denied|nope|don't|stop|cancel)\b/i;
+        const approved = !rejectWords.test(reply.trim());
+        finalReply = JSON.stringify({ approved, reply });
+      }
+    }
+
     try {
       if (msg.sessionId) {
         // End-of-session question — resume the agent with --resume
         await invoke('resume_agent', {
           agentId: msg.agentId,
           sessionId: msg.sessionId,
-          prompt: reply,
+          prompt: finalReply,
         });
       } else {
         // MCP ask_human question — answer via the MCP server
-        await invoke('answer_agent', { agentId: msg.agentId, reply });
+        await invoke('answer_agent', { agentId: msg.agentId, reply: finalReply });
       }
       resolveMessage(msgId, reply);
       addMessage({
@@ -690,6 +721,12 @@ export function DmList() {
     if (!inputText.trim() || !activeThread) return;
     const message = inputText.trim();
     setInputText('');
+
+    // If there's a pending question, route the input as a reply to it
+    if (pendingQuestion) {
+      handleReply(pendingQuestion.id, message);
+      return;
+    }
 
     // Add user message to local store immediately
     addMessage({
@@ -919,11 +956,17 @@ export function DmList() {
             const name = agentNameFor(agentId);
             const unread = unreadCounts[agentId] ?? 0;
             const isActive = activeThread === agentId;
+            const agent = agents.find((a) => a.id === agentId);
 
             return (
               <button
                 key={agentId}
                 onClick={() => setActiveThread(agentId)}
+                onContextMenu={(e) => {
+                  if (!agent) return;
+                  e.preventDefault();
+                  setAgentContextMenu({ x: e.clientX, y: e.clientY, agent });
+                }}
                 className={`w-full flex items-center gap-2.5 px-4 py-1.5 text-sm
                   hover:bg-zinc-800 transition-colors text-left
                   ${isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400'}`}
@@ -1008,7 +1051,66 @@ export function DmList() {
                 <AgentAvatar name={agentNameFor(activeThread)} size="sm" />
               )}
               <span className="text-sm font-semibold text-zinc-200">{threadHeaderLabel}</span>
+              {/* Channel member avatars */}
+              {isChannel && (() => {
+                const ch = channels.find((c) => c.id === activeThread);
+                if (!ch) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setShowChannelMembers(!showChannelMembers)}
+                    className="ml-auto flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    <div className="flex -space-x-1">
+                      {ch.agentIds.slice(0, 4).map((aid) => {
+                        const a = agents.find((ag) => ag.id === aid);
+                        return (
+                          <div key={aid} className="w-5 h-5 rounded bg-violet-700 flex items-center justify-center text-[8px] text-white font-bold border border-zinc-800">
+                            {(a?.name ?? 'A').charAt(0).toUpperCase()}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <span>{ch.agentIds.length} members</span>
+                  </button>
+                );
+              })()}
             </div>
+
+            {/* Channel member management panel */}
+            {isChannel && showChannelMembers && (() => {
+              const ch = channels.find((c) => c.id === activeThread);
+              if (!ch) return null;
+              const updateChannel = useMessageStore.getState().updateChannel;
+              return (
+                <div className="px-5 py-2 border-b border-zinc-800 bg-zinc-900/50">
+                  <p className="text-xs text-zinc-500 mb-1.5">Members</p>
+                  <div className="space-y-1">
+                    {agents.map((a) => {
+                      const isMember = ch.agentIds.includes(a.id);
+                      return (
+                        <label key={a.id} className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isMember}
+                            onChange={() => {
+                              const newIds = isMember
+                                ? ch.agentIds.filter((id) => id !== a.id)
+                                : [...ch.agentIds, a.id];
+                              updateChannel(ch.id, { agentIds: newIds });
+                            }}
+                            className="accent-violet-600"
+                          />
+                          <AgentAvatar name={a.name} size="sm" />
+                          <span>{a.name}</span>
+                          <span className="text-zinc-600">({a.role})</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Messages + Thread panel row */}
             <div className="flex-1 flex flex-row min-h-0">
@@ -1093,7 +1195,7 @@ export function DmList() {
                         value={inputText}
                         onChange={handleInputChange}
                         onKeyDown={handleInputKeyDown}
-                        placeholder={isChannel ? `Message #${channelNameFor(activeThread)}` : 'Message...'}
+                        placeholder={pendingQuestion ? 'Reply to agent question...' : isChannel ? `Message #${channelNameFor(activeThread)}` : 'Message...'}
                         className={`w-full bg-zinc-900 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm outline-none focus:border-violet-500 placeholder:text-zinc-600 ${inputText ? 'text-transparent caret-zinc-200' : 'text-zinc-200'}`}
                         style={inputText ? { caretColor: '#e4e4e7' } : undefined}
                       />
@@ -1128,6 +1230,43 @@ export function DmList() {
           </div>
         )}
       </div>
+
+      {/* Agent context menu */}
+      {agentContextMenu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setAgentContextMenu(null)} />
+          <div
+            className="fixed z-50 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 min-w-[140px]"
+            style={{ left: agentContextMenu.x, top: agentContextMenu.y }}
+          >
+            <button
+              type="button"
+              onClick={() => { setEditAgent(agentContextMenu.agent); setAgentContextMenu(null); }}
+              className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+            >
+              Edit agent
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const agent = agentContextMenu.agent;
+                setAgentContextMenu(null);
+                if (confirm(`Delete agent "${agent.name}"? Message history will be preserved.`)) {
+                  useAgentStore.getState().deleteAgent(agent.id);
+                }
+              }}
+              className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-700 transition-colors"
+            >
+              Delete agent
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Agent edit modal */}
+      {editAgent && (
+        <AgentFormModal agent={editAgent} onClose={() => setEditAgent(null)} />
+      )}
     </div>
   );
 }

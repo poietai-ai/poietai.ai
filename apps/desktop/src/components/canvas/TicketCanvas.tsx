@@ -1,6 +1,5 @@
 import { useEffect, useMemo } from 'react';
 import { ReactFlow, Background, Controls, BackgroundVariant } from '@xyflow/react';
-import { listen } from '@tauri-apps/api/event';
 import '@xyflow/react/dist/style.css';
 
 import { useCanvasStore } from '../../store/canvasStore';
@@ -9,7 +8,6 @@ import { nodeTypes } from './nodes';
 import { CanvasFilterBar } from './CanvasFilterBar';
 import { PhaseBreadcrumb } from './PhaseBreadcrumb';
 import { useSettingsStore, NODE_CATEGORIES, type NodeCategory } from '../../store/settingsStore';
-import type { CanvasNodePayload, AgentStatusPayload } from '../../types/canvas';
 
 interface TicketCanvasProps {
   ticketId: string;
@@ -18,7 +16,7 @@ interface TicketCanvasProps {
 export function TicketCanvas({ ticketId }: TicketCanvasProps) {
   const {
     nodes, edges,
-    setActiveTicket, addNodeFromEvent,
+    setActiveTicket,
     onNodesChange,
   } = useCanvasStore();
 
@@ -28,44 +26,8 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
     setActiveTicket(ticketId);
   }, [ticketId, setActiveTicket]);
 
-  // Listen for canvas node events from the agent stream
-  useEffect(() => {
-    const unlisten = listen<CanvasNodePayload>('agent-event', (event) => {
-      addNodeFromEvent(event.payload);
-    });
-    return () => { unlisten.then((fn) => fn()); };
-  }, [addNodeFromEvent]);
-
-  // Listen for status updates — add canvas status node
-  useEffect(() => {
-    const unlisten = listen<AgentStatusPayload>('agent-status', (event) => {
-      const { agent_id, message } = event.payload;
-      useCanvasStore.getState().addStatusUpdateNode(agent_id, message);
-    });
-    return () => { unlisten.then((fn) => fn()); };
-  }, []);
-
-  // Listen for fan-out — add fan-out node to canvas
-  useEffect(() => {
-    const unlisten = listen<{ ticket_id: string; groups: { group_id: string; agent_role: string }[] }>(
-      'orchestrator-fan-out',
-      (event) => {
-        useCanvasStore.getState().addFanOutNode(event.payload.ticket_id, event.payload.groups);
-      },
-    );
-    return () => { unlisten.then((fn) => fn()); };
-  }, []);
-
-  // Listen for fan-in — add merge result node to canvas
-  useEffect(() => {
-    const unlisten = listen<{ ticket_id: string; merge_status: string }>(
-      'orchestrator-fan-in',
-      (event) => {
-        useCanvasStore.getState().addFanInNode(event.payload.ticket_id, event.payload.merge_status);
-      },
-    );
-    return () => { unlisten.then((fn) => fn()); };
-  }, []);
+  // Canvas event listeners (agent-event, agent-status, fan-out, fan-in)
+  // are in AppShell so they run regardless of which view is active.
 
   const hiddenNodeCategories = useSettingsStore((s) => s.hiddenNodeCategories);
 

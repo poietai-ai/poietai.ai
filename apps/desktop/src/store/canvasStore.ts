@@ -3,8 +3,19 @@ import type { Node, Edge } from '@xyflow/react';
 import { applyNodeChanges, type NodeChange } from '@xyflow/react';
 import { readProjectStore, writeProjectStore } from '../lib/projectFileIO';
 import { getActiveProjectRoot } from './projectStore';
-import type { CanvasNodeData, CanvasNodePayload, CanvasNodeType, AgentEventKind } from '../types/canvas';
+import type { CanvasNodeData, CanvasNodePayload, CanvasNodeType, CanvasPhase, AgentEventKind } from '../types/canvas';
 import type { PlanArtifact } from '../types/planArtifact';
+import type { LayoutState } from '../lib/canvasLayout';
+import {
+  createLayoutState,
+  placeNode,
+  placeFanOut as layoutFanOut,
+  placeFanIn as layoutFanIn,
+  rebuildLayoutState,
+  inferPhase,
+  generatePhaseBoxes,
+} from '../lib/canvasLayout';
+import { useTicketStore } from './ticketStore';
 
 interface CanvasStore {
   nodes: Node<CanvasNodeData>[];
@@ -13,6 +24,7 @@ interface CanvasStore {
   awaitingQuestion: string | null;
   awaitingSessionId: string | null;
   laneAssignments: Record<string, number>;
+  layoutState: LayoutState;
 
   setActiveTicket: (ticketId: string) => void;
   addNodeFromEvent: (payload: CanvasNodePayload) => void;
@@ -31,15 +43,10 @@ interface CanvasStore {
   onNodesChange: (changes: NodeChange[]) => void;
   setAwaiting: (question: string, sessionId: string) => void;
   clearAwaiting: () => void;
+  relayoutAllNodes: () => void;
   clearCanvas: () => void;
   resetForProjectSwitch: () => void;
 }
-
-// Horizontal gap between canvas nodes in pixels.
-const NODE_HORIZONTAL_SPACING = 340;
-
-// Vertical gap between swim lanes in pixels.
-const LANE_HEIGHT = 260;
 
 // These node types are merged when consecutive: e.g. 10 Reads in a row → one "Read 10 files" node.
 const GROUPABLE: CanvasNodeType[] = ['file_read', 'bash_command', 'file_edit', 'file_write'];
@@ -108,9 +115,15 @@ function nodeIdFromPayload(payload: CanvasNodePayload): string {
   return `${payload.agent_id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/** Look up the active phase for a ticket from ticketStore. */
+function getTicketPhase(ticketId: string): CanvasPhase | undefined {
+  const ticket = useTicketStore.getState().tickets.find((t) => t.id === ticketId);
+  return ticket?.activePhase as CanvasPhase | undefined;
+}
+
 const CANVAS_PERSIST_DEBOUNCE_MS = 1000;
 
-type CanvasData = Record<string, { nodes: Node<CanvasNodeData>[]; edges: Edge[] }>;
+type CanvasData = Record<string, { nodes: Node<CanvasNodeData>[]; edges: Edge[]; layoutState?: LayoutState }>;
 
 /** Strip ReactFlow runtime fields — keep only what we need to restore. */
 function serializeNodes(nodes: Node<CanvasNodeData>[]): Array<{ id: string; type: string; position: { x: number; y: number }; data: CanvasNodeData }> {
@@ -122,13 +135,13 @@ let canvasPersistTimer: ReturnType<typeof setTimeout> | null = null;
 function debouncedPersistCanvas(get: () => CanvasStore) {
   if (canvasPersistTimer) clearTimeout(canvasPersistTimer);
   canvasPersistTimer = setTimeout(async () => {
-    const { activeTicketId, nodes, edges } = get();
+    const { activeTicketId, nodes, edges, layoutState } = get();
     if (!activeTicketId) return;
     const root = getActiveProjectRoot();
     if (!root) return;
     try {
       const all = (await readProjectStore<CanvasData>(root, 'canvas.json')) ?? {};
-      all[activeTicketId] = { nodes: serializeNodes(nodes) as Node<CanvasNodeData>[], edges };
+      all[activeTicketId] = { nodes: serializeNodes(nodes) as Node<CanvasNodeData>[], edges, layoutState };
       await writeProjectStore(root, 'canvas.json', all);
     } catch (e) {
       console.warn('failed to persist canvas:', e);
@@ -143,29 +156,34 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   awaitingQuestion: null,
   awaitingSessionId: null,
   laneAssignments: {},
+  layoutState: createLayoutState(),
 
   setActiveTicket: (ticketId) => {
-    const { activeTicketId, nodes, edges } = get();
+    const { activeTicketId, nodes, edges, layoutState } = get();
+    // If already viewing this ticket, no-op — avoids clearing in-memory nodes
+    if (ticketId === activeTicketId) return;
     const root = getActiveProjectRoot();
     // Save current ticket's canvas immediately (not debounced)
     if (activeTicketId && nodes.length > 0 && root) {
       readProjectStore<CanvasData>(root, 'canvas.json')
         .then((all) => {
           const updated = all ?? {};
-          updated[activeTicketId] = { nodes: serializeNodes(nodes) as Node<CanvasNodeData>[], edges };
+          updated[activeTicketId] = { nodes: serializeNodes(nodes) as Node<CanvasNodeData>[], edges, layoutState };
           return writeProjectStore(root, 'canvas.json', updated);
         })
         .catch((e) => console.warn('failed to save canvas on switch:', e));
     }
     // Clear canvas and set new ticket
-    set({ activeTicketId: ticketId, nodes: [], edges: [], laneAssignments: {} });
+    set({ activeTicketId: ticketId, nodes: [], edges: [], laneAssignments: {}, layoutState: createLayoutState() });
     // Load new ticket's canvas
     if (root) {
       readProjectStore<CanvasData>(root, 'canvas.json')
         .then((all) => {
           const saved = all?.[ticketId];
           if (saved && get().activeTicketId === ticketId) {
-            set({ nodes: saved.nodes, edges: saved.edges });
+            // Restore layoutState or rebuild from old data
+            const restoredLayout = saved.layoutState ?? rebuildLayoutState(saved.nodes);
+            set({ nodes: saved.nodes, edges: saved.edges, layoutState: restoredLayout });
           }
         })
         .catch((e) => console.warn('failed to load canvas:', e));
@@ -190,6 +208,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           activated: false,
           action: task.action,
           items: [],
+          phase: 'plan' as CanvasPhase,
         },
       }));
       return { nodes: [...ghostNodes, ...state.nodes] };
@@ -271,30 +290,20 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       }
     }
 
-    // Lane-aware positioning
+    // Lane-aware positioning via layout engine
     const groupId = payload.group_id;
-    const { laneAssignments } = get();
-
-    let xPosition: number;
-    let yPosition: number;
-
-    if (groupId && laneAssignments[groupId] !== undefined) {
-      // Count non-ghost nodes in same lane for x position
-      const laneNodeCount = nodes.filter((n) => !n.data.isGhost && n.data.groupId === groupId).length;
-      xPosition = laneNodeCount * NODE_HORIZONTAL_SPACING;
-      yPosition = 80 + laneAssignments[groupId] * LANE_HEIGHT;
-    } else {
-      // Default: count all non-ghost nodes
-      xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
-      yPosition = 80;
-    }
+    const { layoutState } = get();
+    const laneId = (groupId && groupId in layoutState.nextX) ? groupId : '';
+    const placed = placeNode(layoutState, laneId, mappedType, content);
 
     const items = GROUPABLE.includes(mappedType) ? [label] : undefined;
+
+    const phase = getTicketPhase(payload.ticket_id) ?? inferPhase(mappedType);
 
     const newNode: Node<CanvasNodeData> = {
       id: nodeId,
       type: mappedType,
-      position: { x: xPosition, y: yPosition },
+      position: { x: placed.x, y: placed.y },
       data: {
         nodeType: mappedType,
         agentId: payload.agent_id,
@@ -303,6 +312,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         filePath,
         items,
         groupId,
+        phase,
       },
     };
 
@@ -348,14 +358,14 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addValidateResultNode: (summary) => {
-    const { nodes, edges, activeTicketId } = get();
+    const { nodes, edges, activeTicketId, layoutState } = get();
     const nodeId = `validate-result-${Date.now()}`;
-    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const placed = placeNode(layoutState, '', 'validate_result');
 
     const newNode: Node<CanvasNodeData> = {
       id: nodeId,
       type: 'validate_result' as CanvasNodeType,
-      position: { x: xPosition, y: 80 },
+      position: { x: placed.x, y: placed.y },
       data: {
         nodeType: 'validate_result' as CanvasNodeType,
         agentId: '',
@@ -363,6 +373,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         content: '',
         validateSummary: summary,
         items: [],
+        phase: 'validate' as CanvasPhase,
       },
     };
 
@@ -383,14 +394,14 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addQaResultNode: (summary) => {
-    const { nodes, edges, activeTicketId } = get();
+    const { nodes, edges, activeTicketId, layoutState } = get();
     const nodeId = `qa-result-${Date.now()}`;
-    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const placed = placeNode(layoutState, '', 'qa_result');
 
     const newNode: Node<CanvasNodeData> = {
       id: nodeId,
       type: 'qa_result' as CanvasNodeType,
-      position: { x: xPosition, y: 80 },
+      position: { x: placed.x, y: placed.y },
       data: {
         nodeType: 'qa_result' as CanvasNodeType,
         agentId: '',
@@ -398,6 +409,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         content: '',
         qaSummary: summary,
         items: [],
+        phase: 'qa' as CanvasPhase,
       },
     };
 
@@ -418,13 +430,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addSecurityResultNode: (summary) => {
-    const { nodes, edges, activeTicketId } = get();
+    const { nodes, edges, activeTicketId, layoutState } = get();
     const nodeId = `security-result-${Date.now()}`;
-    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const placed = placeNode(layoutState, '', 'security_result');
     const newNode: Node<CanvasNodeData> = {
       id: nodeId,
       type: 'security_result' as CanvasNodeType,
-      position: { x: xPosition, y: 80 },
+      position: { x: placed.x, y: placed.y },
       data: {
         nodeType: 'security_result' as CanvasNodeType,
         agentId: '',
@@ -432,6 +444,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         content: '',
         securitySummary: summary,
         items: [],
+        phase: 'security' as CanvasPhase,
       },
     };
     const newEdges = [...edges];
@@ -450,13 +463,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addReviewSynthesisNode: (summary) => {
-    const { nodes, edges, activeTicketId } = get();
+    const { nodes, edges, activeTicketId, layoutState } = get();
     const nodeId = `review-synthesis-${Date.now()}`;
-    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const placed = placeNode(layoutState, '', 'review_synthesis');
     const newNode: Node<CanvasNodeData> = {
       id: nodeId,
       type: 'review_synthesis' as CanvasNodeType,
-      position: { x: xPosition, y: 80 },
+      position: { x: placed.x, y: placed.y },
       data: {
         nodeType: 'review_synthesis' as CanvasNodeType,
         agentId: '',
@@ -464,6 +477,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         content: '',
         synthesisSummary: summary,
         items: [],
+        phase: 'ship' as CanvasPhase,
       },
     };
     const newEdges = [...edges];
@@ -482,19 +496,20 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addStatusUpdateNode: (agentId, message) => {
-    const { nodes, edges, activeTicketId } = get();
+    const { nodes, edges, activeTicketId, layoutState } = get();
     const nodeId = `status-${agentId}-${Date.now()}`;
-    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const placed = placeNode(layoutState, '', 'status_update', message);
     const newNode: Node<CanvasNodeData> = {
       id: nodeId,
       type: 'status_update' as CanvasNodeType,
-      position: { x: xPosition, y: 80 },
+      position: { x: placed.x, y: placed.y },
       data: {
         nodeType: 'status_update' as CanvasNodeType,
         agentId,
         ticketId: activeTicketId ?? '',
         content: message,
         items: [],
+        phase: (activeTicketId ? getTicketPhase(activeTicketId) : undefined) ?? inferPhase('status_update'),
       },
     };
     const newEdges = [...edges];
@@ -513,7 +528,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addFanOutNode: (ticketId, groups) => {
-    const { nodes, edges } = get();
+    const { nodes, edges, layoutState } = get();
 
     // Build lane assignments: each group gets an index (0, 1, 2...)
     const newLaneAssignments: Record<string, number> = {};
@@ -521,15 +536,14 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       newLaneAssignments[g.group_id] = idx;
     });
 
-    // Place fan-out node after the last non-ghost node
-    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const placed = layoutFanOut(layoutState, groups);
     const nodeId = `fan-out-${Date.now()}`;
     const content = groups.map((g) => `${g.group_id}: ${g.agent_role}`).join('\n');
 
     const newNode: Node<CanvasNodeData> = {
       id: nodeId,
       type: 'fan_out' as CanvasNodeType,
-      position: { x: xPosition, y: 80 },
+      position: { x: placed.x, y: placed.y },
       data: {
         nodeType: 'fan_out' as CanvasNodeType,
         agentId: '',
@@ -537,6 +551,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         content,
         groups,
         items: [],
+        phase: 'build' as CanvasPhase,
       },
     };
 
@@ -557,20 +572,16 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addFanInNode: (ticketId, mergeStatus) => {
-    const { nodes, edges } = get();
+    const { nodes, edges, laneAssignments, layoutState } = get();
 
-    // Find the max x position across all non-ghost nodes + spacing
-    const nonGhostNodes = nodes.filter((n) => !n.data.isGhost);
-    const maxX = nonGhostNodes.length > 0
-      ? Math.max(...nonGhostNodes.map((n) => n.position.x))
-      : 0;
-    const xPosition = maxX + NODE_HORIZONTAL_SPACING;
+    const groupIds = Object.keys(laneAssignments);
+    const placed = layoutFanIn(layoutState, groupIds);
     const nodeId = `fan-in-${Date.now()}`;
 
     const newNode: Node<CanvasNodeData> = {
       id: nodeId,
       type: 'fan_in' as CanvasNodeType,
-      position: { x: xPosition, y: 80 },
+      position: { x: placed.x, y: placed.y },
       data: {
         nodeType: 'fan_in' as CanvasNodeType,
         agentId: '',
@@ -578,11 +589,32 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         content: mergeStatus,
         mergeStatus,
         items: [],
+        phase: 'build' as CanvasPhase,
       },
     };
 
     const newEdges = [...edges];
-    if (nodes.length > 0) {
+
+    // Connect last node in EACH lane to the fan-in node
+    const connectedSources = new Set<string>();
+    for (const gid of groupIds) {
+      const lastInLane = [...nodes].reverse().find(
+        (n) => !n.data.isGhost && n.data.groupId === gid
+      );
+      if (lastInLane && !connectedSources.has(lastInLane.id)) {
+        connectedSources.add(lastInLane.id);
+        newEdges.push({
+          id: `${lastInLane.id}->${nodeId}`,
+          source: lastInLane.id,
+          target: nodeId,
+          type: 'smoothstep',
+          style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
+        });
+      }
+    }
+
+    // Also connect from the last non-ghost default-lane node if not already connected
+    if (connectedSources.size === 0 && nodes.length > 0) {
       const prevNode = [...nodes].reverse().find((n) => !n.data.isGhost) ?? nodes[nodes.length - 1];
       newEdges.push({
         id: `${prevNode.id}->${nodeId}`,
@@ -594,6 +626,99 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }
 
     set({ nodes: [...nodes, newNode], edges: newEdges, laneAssignments: {} });
+    debouncedPersistCanvas(get);
+  },
+
+  relayoutAllNodes: () => {
+    const { nodes, edges } = get();
+
+    // 1. Filter out old phase boxes
+    const withoutBoxes = nodes.filter((n) => !n.data.isPhaseBox);
+
+    // 2. Separate ghosts from work nodes
+    const ghosts = withoutBoxes.filter((n) => n.data.isGhost);
+    const workNodes = withoutBoxes.filter((n) => !n.data.isGhost);
+
+    // 3. Fresh layout state
+    const layout = createLayoutState();
+
+    // 4. Walk work nodes in array order and re-position
+    const relocated: Node<CanvasNodeData>[] = [];
+    for (const node of workNodes) {
+      const nodeType = node.data.nodeType;
+      const content = node.data.content;
+      const items = node.data.items;
+      const phase = node.data.phase ?? inferPhase(nodeType);
+
+      let placed;
+      if (nodeType === 'fan_out' && node.data.groups) {
+        placed = layoutFanOut(layout, node.data.groups as { group_id: string; agent_role: string }[]);
+      } else if (nodeType === 'fan_in') {
+        const activeGroupIds = layout.laneOrder.filter((id) => id !== '');
+        placed = layoutFanIn(layout, activeGroupIds);
+      } else {
+        const laneId = (node.data.groupId && node.data.groupId in layout.nextX)
+          ? node.data.groupId as string
+          : '';
+        placed = placeNode(layout, laneId, nodeType, content, items);
+      }
+
+      relocated.push({
+        ...node,
+        position: { x: placed.x, y: placed.y },
+        data: { ...node.data, phase },
+      });
+    }
+
+    // 5. Re-position ghost nodes at y=-180
+    const repositionedGhosts = ghosts.map((n, idx) => ({
+      ...n,
+      position: { x: idx * 240, y: -180 },
+    }));
+
+    // 6. Generate phase boxes
+    const phaseBoxes = generatePhaseBoxes(relocated);
+
+    // 7. Rebuild edges between work nodes (preserve order)
+    const newEdges: Edge[] = [];
+    for (let i = 1; i < relocated.length; i++) {
+      const prev = relocated[i - 1];
+      const curr = relocated[i];
+      // If current is fan_in, connect from last node in each lane
+      if (curr.data.nodeType === 'fan_in') {
+        // Find matching edges from original that target this node
+        const originalIncoming = edges.filter((e) => e.target === curr.id);
+        for (const oe of originalIncoming) {
+          const sourceExists = relocated.some((n) => n.id === oe.source);
+          if (sourceExists) {
+            newEdges.push(oe);
+          }
+        }
+        if (!newEdges.some((e) => e.target === curr.id)) {
+          newEdges.push({
+            id: `${prev.id}->${curr.id}`,
+            source: prev.id,
+            target: curr.id,
+            type: 'smoothstep',
+            style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
+          });
+        }
+      } else {
+        newEdges.push({
+          id: `${prev.id}->${curr.id}`,
+          source: prev.id,
+          target: curr.id,
+          type: 'smoothstep',
+          style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
+        });
+      }
+    }
+
+    set({
+      nodes: [...phaseBoxes, ...repositionedGhosts, ...relocated],
+      edges: newEdges,
+      layoutState: layout,
+    });
     debouncedPersistCanvas(get);
   },
 
@@ -611,12 +736,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   clearCanvas: () => {
-    set({ nodes: [], edges: [], laneAssignments: {} });
+    set({ nodes: [], edges: [], laneAssignments: {}, layoutState: createLayoutState() });
     debouncedPersistCanvas(get);
   },
 
   resetForProjectSwitch: () => {
     if (canvasPersistTimer) { clearTimeout(canvasPersistTimer); canvasPersistTimer = null; }
-    set({ nodes: [], edges: [], activeTicketId: null, awaitingQuestion: null, awaitingSessionId: null, laneAssignments: {} });
+    set({ nodes: [], edges: [], activeTicketId: null, awaitingQuestion: null, awaitingSessionId: null, laneAssignments: {}, layoutState: createLayoutState() });
   },
 }));

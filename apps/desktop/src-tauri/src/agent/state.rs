@@ -33,6 +33,8 @@ pub struct AgentState {
     pub chat_session_id: Option<String>,
     /// True while processing a chat message.
     pub chatting: bool,
+    /// Per-agent initiative override: "auto", "ask", "suggest", or "off".
+    pub initiative: Option<String>,
 }
 
 /// The shared state store.
@@ -94,6 +96,42 @@ pub fn set_chatting(store: &StateStore, id: &str, chatting: bool) {
     }
 }
 
+/// Update name, role, and personality of an existing agent.
+/// Returns true if the agent was found, false otherwise.
+pub fn update_agent_fields(
+    store: &StateStore,
+    id: &str,
+    name: Option<String>,
+    role: Option<String>,
+    personality: Option<String>,
+    initiative: Option<String>,
+) -> bool {
+    let mut map = store.lock().unwrap();
+    if let Some(agent) = map.get_mut(id) {
+        if let Some(n) = name {
+            agent.name = n;
+        }
+        if let Some(r) = role {
+            agent.role = r;
+        }
+        if let Some(p) = personality {
+            agent.personality = p;
+        }
+        // initiative can be set to None (clear override) or Some(value)
+        agent.initiative = initiative;
+        true
+    } else {
+        false
+    }
+}
+
+/// Remove an agent from the store.
+/// Returns true if the agent was found and removed, false otherwise.
+pub fn remove_agent(store: &StateStore, id: &str) -> bool {
+    let mut map = store.lock().unwrap();
+    map.remove(id).is_some()
+}
+
 /// Update just the status of an agent.
 /// Returns true if the agent was found and updated, false if the ID was not in the store.
 pub fn set_status(store: &StateStore, id: &str, status: AgentStatus) -> bool {
@@ -123,6 +161,7 @@ mod tests {
             pr_number: None,
             chat_session_id: None,
             chatting: false,
+            initiative: None,
         }
     }
 
@@ -179,5 +218,37 @@ mod tests {
         // Should not panic — just silently does nothing
         save_session_id(&store, "nonexistent", "session-xyz");
         assert!(get_agent(&store, "nonexistent").is_none());
+    }
+
+    #[test]
+    fn update_agent_fields_partial() {
+        let store = new_store();
+        upsert_agent(&store, make_agent("agent-u", AgentStatus::Idle));
+        let ok = update_agent_fields(&store, "agent-u", Some("New Name".into()), None, None, None);
+        assert!(ok);
+        let agent = get_agent(&store, "agent-u").unwrap();
+        assert_eq!(agent.name, "New Name");
+        assert_eq!(agent.role, "backend-engineer"); // unchanged
+    }
+
+    #[test]
+    fn update_agent_fields_missing() {
+        let store = new_store();
+        let ok = update_agent_fields(&store, "nope", Some("x".into()), None, None, None);
+        assert!(!ok);
+    }
+
+    #[test]
+    fn remove_agent_works() {
+        let store = new_store();
+        upsert_agent(&store, make_agent("agent-r", AgentStatus::Idle));
+        assert!(remove_agent(&store, "agent-r"));
+        assert!(get_agent(&store, "agent-r").is_none());
+    }
+
+    #[test]
+    fn remove_agent_missing() {
+        let store = new_store();
+        assert!(!remove_agent(&store, "nonexistent"));
     }
 }

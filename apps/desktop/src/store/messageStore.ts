@@ -18,6 +18,7 @@ interface MessageStore {
   setOpenThread: (parentId: string | null) => void;
   markRead: (threadId: string) => void;
   addChannel: (channel: Channel) => void;
+  updateChannel: (id: string, patch: Partial<Pick<Channel, 'name' | 'agentIds'>>) => void;
   removeMessagesByTicketId: (ticketId: string) => void;
   totalUnread: () => number;
   resetForProjectSwitch: () => void;
@@ -125,6 +126,13 @@ export const useMessageStore = create<MessageStore>((set, get) => ({
 
   addChannel: (channel) => {
     set((state) => ({ channels: [...state.channels, channel] }));
+    debouncedPersistMessages(get);
+  },
+
+  updateChannel: (id, patch) => {
+    set((state) => ({
+      channels: state.channels.map((ch) => (ch.id === id ? { ...ch, ...patch } : ch)),
+    }));
     debouncedPersistMessages(get);
   },
 

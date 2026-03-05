@@ -16,6 +16,7 @@ import type { Agent } from '../../store/agentStore';
 interface TicketCardProps {
   ticket: Ticket;
   onOpenCanvas: (ticketId: string) => void;
+  onOpenDetail: (ticketId: string) => void;
 }
 
 function complexityClass(n: number): string {
@@ -24,7 +25,7 @@ function complexityClass(n: number): string {
   return 'text-red-400 bg-red-950';
 }
 
-export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
+export function TicketCard({ ticket, onOpenCanvas, onOpenDetail }: TicketCardProps) {
   const { assignTicket, updateTicketStatus, resetTicket, deleteTicket } = useTicketStore();
   const { setActiveTicket } = useCanvasStore();
   const { projects, activeProjectId } = useProjectStore();
@@ -83,6 +84,9 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
 
     const ghToken = useSecretsStore.getState().ghToken ?? '';
 
+    // Set canvas context before starting so events are captured from the first tool call
+    setActiveTicket(ticket.id);
+
     try {
       await invoke<void>('start_agent', {
         payload: {
@@ -100,7 +104,6 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
       // Only mutate ticket state after the invoke succeeds — no rollback needed.
       assignTicket(ticket.id, { agentId: agent.id, repoId });
       updateTicketStatus(ticket.id, 'in_progress');
-      setActiveTicket(ticket.id);
       // Seed ghost graph when entering BUILD phase with a plan artifact
       if (ticket.activePhase === 'build' && ticket.artifacts.plan) {
         const planArtifact = parsePlanArtifact(ticket.artifacts.plan.content);
@@ -143,7 +146,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
         className={`bg-zinc-800 border border-zinc-700 rounded-lg p-3
                    hover:border-zinc-600 transition-colors cursor-grab group
                    ${isDragging ? 'opacity-50' : ''}`}
-        onClick={() => { if (!isDragging) onOpenCanvas(ticket.id); }}
+        onClick={() => { if (!isDragging) onOpenDetail(ticket.id); }}
         onContextMenu={handleContextMenu}
       >
         <div className="flex items-start justify-between gap-2 mb-2">
@@ -157,6 +160,16 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
             {ticket.complexity}
           </span>
         </div>
+
+        {ticket.tags?.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-2">
+            {ticket.tags.map((tag) => (
+              <span key={tag} className="text-[9px] bg-indigo-900/40 text-indigo-400 rounded px-1.5 py-0.5">
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
 
         {ticket.assignments.length > 0 ? (
           <div className="flex items-center gap-2">
