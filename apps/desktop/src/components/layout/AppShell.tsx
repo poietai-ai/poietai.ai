@@ -16,6 +16,7 @@ import { useTicketStore } from '../../store/ticketStore';
 import { useNavigationStore } from '../../store/navigationStore';
 import { useCanvasStore } from '../../store/canvasStore';
 import { useProjectStore } from '../../store/projectStore';
+import { useChatSessionStore } from '../../store/chatSessionStore';
 import { useSecretsStore } from '../../store/secretsStore';
 import { buildPrompt } from '../../lib/promptBuilder';
 import { buildChatPrompt } from '../../lib/chatPromptBuilder';
@@ -252,6 +253,79 @@ export function AppShell() {
         timestamp: Date.now(),
         resolved: false,
       });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  // Agent-to-agent message listener
+  useEffect(() => {
+    const unlisten = listen<{
+      from_agent_id: string;
+      to: string[];
+      message: string;
+      conversation_id?: string;
+    }>('agent-message', (event) => {
+      const { from_agent_id, to, message, conversation_id } = event.payload;
+      const fromAgent = useAgentStore.getState().agents.find((a) => a.id === from_agent_id);
+      const store = useMessageStore.getState();
+
+      // Find or create conversation
+      let convId = conversation_id;
+      if (!convId) {
+        const participants = [from_agent_id, ...to];
+        const conv = store.findOrCreateDm(participants);
+        convId = conv.id;
+      }
+
+      // Add the message to the conversation thread
+      store.addMessage({
+        id: `agent-msg-${from_agent_id}-${Date.now()}`,
+        threadId: convId,
+        threadType: 'dm',
+        from: from_agent_id,
+        agentId: from_agent_id,
+        agentName: fromAgent?.name ?? from_agent_id,
+        content: message,
+        type: 'text',
+        timestamp: Date.now(),
+      });
+
+      // Wake each idle recipient agent
+      for (const recipientId of to) {
+        const recipient = useAgentStore.getState().agents.find((a) => a.id === recipientId);
+        if (!recipient || recipient.chatting) continue;
+
+        // Build context for the wake
+        const tickets = useTicketStore.getState().tickets;
+        const contextUpdate = useChatSessionStore.getState().flushUpdates(recipientId);
+        const { projects, activeProjectId } = useProjectStore.getState();
+        const activeProject = projects.find((p) => p.id === activeProjectId);
+        const projectRoot = activeProject?.repos[0]?.repoRoot;
+        const systemPrompt = buildChatPrompt({
+          agent: recipient,
+          tickets,
+          projectName: activeProject?.name,
+          projectRoot,
+        });
+
+        const wakeMessage = `[AGENT_MESSAGE from ${fromAgent?.name ?? from_agent_id}]: ${message}`;
+
+        invoke('chat_agent', {
+          payload: {
+            agent_id: recipientId,
+            message: wakeMessage,
+            system_prompt: systemPrompt,
+            context_update: contextUpdate,
+          },
+        }).catch((err) => {
+          console.warn(`[agent-message] failed to wake ${recipientId}:`, err);
+          // Queue as context update instead
+          useChatSessionStore.getState().pushUpdate(
+            recipientId,
+            `Message from ${fromAgent?.name ?? from_agent_id}: ${message}`
+          );
+        });
+      }
     });
     return () => { unlisten.then((fn) => fn()); };
   }, []);
@@ -687,6 +761,13 @@ export function AppShell() {
         (t) => t.assignments.length === 0 && (t.status === 'refined' || t.status === 'backlog'),
       );
       if (unassigned.length === 0) continue;
+
+      // Skip nudge if this agent still has tickets being worked on
+      const agentBusyTickets = useTicketStore.getState().tickets.filter(
+        (t) => t.assignments.some((a) => a.agentId === agent.id) &&
+               (t.status === 'in_progress' || t.status === 'assigned'),
+      );
+      if (agentBusyTickets.length > 0) continue;
 
       prev[agent.id].lastNudgeAt = Date.now();
 
