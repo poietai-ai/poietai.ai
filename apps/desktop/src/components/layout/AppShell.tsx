@@ -22,6 +22,7 @@ import { buildPrompt } from '../../lib/promptBuilder';
 import { buildChatPrompt } from '../../lib/chatPromptBuilder';
 import { resolveInitiative, type InitiativeLevel } from '../../lib/initiativeResolver';
 import { resumeStalledTickets } from '../../lib/resumeOnStartup';
+import { checkAgentMessageRate, checkConversationDepth } from '../../lib/agentMessageRateLimit';
 import type { CanvasNodePayload, AgentQuestionPayload, AgentChoicesPayload, AgentStatusPayload, AgentConfirmPayload } from '../../types/canvas';
 
 export function AppShell() {
@@ -277,6 +278,12 @@ export function AppShell() {
         convId = conv.id;
       }
 
+      // Rate limit check
+      if (!checkAgentMessageRate(convId, from_agent_id)) {
+        console.warn(`[agent-message] rate limited: ${from_agent_id} in ${convId}`);
+        return;
+      }
+
       // Add the message to the conversation thread
       store.addMessage({
         id: `agent-msg-${from_agent_id}-${Date.now()}`,
@@ -289,6 +296,23 @@ export function AppShell() {
         type: 'text',
         timestamp: Date.now(),
       });
+
+      // Check conversation depth — pause if too many agent messages without user input
+      const threadMsgs = store.threads[convId] ?? [];
+      if (checkConversationDepth(threadMsgs)) {
+        store.addMessage({
+          id: `depth-warn-${Date.now()}`,
+          threadId: convId,
+          threadType: 'dm',
+          from: 'system',
+          agentId: '',
+          agentName: 'System',
+          content: 'Conversation paused — agents have been going back and forth. Want to weigh in?',
+          type: 'status',
+          timestamp: Date.now(),
+        });
+        return; // Don't wake agents
+      }
 
       // Wake each idle recipient agent
       for (const recipientId of to) {
