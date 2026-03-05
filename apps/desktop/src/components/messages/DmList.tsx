@@ -495,6 +495,66 @@ function NewChannelForm({ onClose }: { onClose: () => void }) {
   );
 }
 
+function NewGroupDmForm({ onClose }: { onClose: () => void }) {
+  const agents = useAgentStore((s) => s.agents);
+  const addConversation = useMessageStore((s) => s.addConversation);
+  const setActiveThread = useMessageStore((s) => s.setActiveThread);
+  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
+
+  const handleCreate = () => {
+    if (selectedAgentIds.size === 0) return;
+    const participants = [...selectedAgentIds];
+    const id = crypto.randomUUID();
+    const conv: Conversation = {
+      id,
+      type: 'dm',
+      participants,
+      locked: false,
+      createdAt: Date.now(),
+      lastMessageAt: Date.now(),
+    };
+    addConversation(conv);
+    setActiveThread(id);
+    onClose();
+  };
+
+  return (
+    <div className="px-4 py-2 border-b border-zinc-800">
+      <p className="text-xs text-zinc-400 mb-1">Select agents for group DM:</p>
+      <div className="space-y-1 max-h-32 overflow-y-auto">
+        {agents.map((a) => (
+          <label key={a.id} className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={selectedAgentIds.has(a.id)}
+              onChange={() => {
+                const next = new Set(selectedAgentIds);
+                next.has(a.id) ? next.delete(a.id) : next.add(a.id);
+                setSelectedAgentIds(next);
+              }}
+              className="accent-violet-600"
+            />
+            {a.name}
+          </label>
+        ))}
+      </div>
+      <div className="flex gap-2 mt-2">
+        <button
+          type="button"
+          onClick={handleCreate}
+          disabled={selectedAgentIds.size === 0}
+          className="text-xs bg-violet-700 hover:bg-violet-600 text-white rounded px-2 py-1 disabled:opacity-50"
+        >
+          Create
+        </button>
+        <button type="button" onClick={onClose} className="text-xs text-zinc-500 hover:text-zinc-300">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 type AutocompleteMode = 'mention' | 'ticket' | 'slash';
 
 interface AutocompleteItem {
@@ -565,6 +625,7 @@ export function DmList() {
   const [inputText, setInputText] = useState('');
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showNewChannel, setShowNewChannel] = useState(false);
+  const [showNewGroupDm, setShowNewGroupDm] = useState(false);
   const [agentContextMenu, setAgentContextMenu] = useState<{ x: number; y: number; agent: Agent } | null>(null);
   const [editAgent, setEditAgent] = useState<Agent | null>(null);
   const [showChannelMembers, setShowChannelMembers] = useState(false);
@@ -981,11 +1042,21 @@ export function DmList() {
       <div className="w-56 border-r border-zinc-800 flex flex-col flex-shrink-0">
         <div className="flex-1 overflow-y-auto py-3">
           {/* Direct Messages section */}
-          <div className="px-4 mb-2">
+          <div className="px-4 mb-2 flex items-center justify-between">
             <h2 className="text-zinc-400 text-xs font-semibold uppercase tracking-wider">
               Direct Messages
             </h2>
+            <button
+              type="button"
+              onClick={() => setShowNewGroupDm((v) => !v)}
+              className="text-zinc-500 hover:text-zinc-300 transition-colors"
+              title="New group message"
+            >
+              <Plus size={14} />
+            </button>
           </div>
+
+          {showNewGroupDm && <NewGroupDmForm onClose={() => setShowNewGroupDm(false)} />}
 
           {sortedConversations.map((conv) => {
             const unread = unreadCounts[conv.id] ?? 0;
