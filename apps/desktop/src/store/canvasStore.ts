@@ -11,6 +11,7 @@ interface CanvasStore {
   activeTicketId: string | null;
   awaitingQuestion: string | null;
   awaitingSessionId: string | null;
+  laneAssignments: Record<string, number>;
 
   setActiveTicket: (ticketId: string) => void;
   addNodeFromEvent: (payload: CanvasNodePayload) => void;
@@ -24,6 +25,8 @@ interface CanvasStore {
     security: { critical: number; warnings: number };
   }) => void;
   addStatusUpdateNode: (agentId: string, message: string) => void;
+  addFanOutNode: (ticketId: string, groups: { group_id: string; agent_role: string }[]) => void;
+  addFanInNode: (ticketId: string, mergeStatus: string) => void;
   onNodesChange: (changes: NodeChange[]) => void;
   setAwaiting: (question: string, sessionId: string) => void;
   clearAwaiting: () => void;
@@ -32,6 +35,9 @@ interface CanvasStore {
 
 // Horizontal gap between canvas nodes in pixels.
 const NODE_HORIZONTAL_SPACING = 340;
+
+// Vertical gap between swim lanes in pixels.
+const LANE_HEIGHT = 260;
 
 // These node types are merged when consecutive: e.g. 10 Reads in a row → one "Read 10 files" node.
 const GROUPABLE: CanvasNodeType[] = ['file_read', 'bash_command', 'file_edit', 'file_write'];
@@ -133,6 +139,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   activeTicketId: null,
   awaitingQuestion: null,
   awaitingSessionId: null,
+  laneAssignments: {},
 
   setActiveTicket: (ticketId) => {
     const { activeTicketId, nodes, edges } = get();
@@ -143,7 +150,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         .catch((e) => console.warn('failed to save canvas on switch:', e));
     }
     // Clear canvas and set new ticket
-    set({ activeTicketId: ticketId, nodes: [], edges: [] });
+    set({ activeTicketId: ticketId, nodes: [], edges: [], laneAssignments: {} });
     // Load new ticket's canvas
     getCanvasStore()
       .then(async (store) => {
@@ -254,14 +261,30 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       }
     }
 
-    // Count only non-ghost nodes for execution layout
-    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    // Lane-aware positioning
+    const groupId = payload.group_id;
+    const { laneAssignments } = get();
+
+    let xPosition: number;
+    let yPosition: number;
+
+    if (groupId && laneAssignments[groupId] !== undefined) {
+      // Count non-ghost nodes in same lane for x position
+      const laneNodeCount = nodes.filter((n) => !n.data.isGhost && n.data.groupId === groupId).length;
+      xPosition = laneNodeCount * NODE_HORIZONTAL_SPACING;
+      yPosition = 80 + laneAssignments[groupId] * LANE_HEIGHT;
+    } else {
+      // Default: count all non-ghost nodes
+      xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+      yPosition = 80;
+    }
+
     const items = GROUPABLE.includes(mappedType) ? [label] : undefined;
 
     const newNode: Node<CanvasNodeData> = {
       id: nodeId,
       type: mappedType,
-      position: { x: xPosition, y: 80 },
+      position: { x: xPosition, y: yPosition },
       data: {
         nodeType: mappedType,
         agentId: payload.agent_id,
@@ -269,6 +292,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         content,
         filePath,
         items,
+        groupId,
       },
     };
 
@@ -478,6 +502,91 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     debouncedPersistCanvas(get);
   },
 
+  addFanOutNode: (ticketId, groups) => {
+    const { nodes, edges } = get();
+
+    // Build lane assignments: each group gets an index (0, 1, 2...)
+    const newLaneAssignments: Record<string, number> = {};
+    groups.forEach((g, idx) => {
+      newLaneAssignments[g.group_id] = idx;
+    });
+
+    // Place fan-out node after the last non-ghost node
+    const xPosition = nodes.filter((n) => !n.data.isGhost).length * NODE_HORIZONTAL_SPACING;
+    const nodeId = `fan-out-${Date.now()}`;
+    const content = groups.map((g) => `${g.group_id}: ${g.agent_role}`).join('\n');
+
+    const newNode: Node<CanvasNodeData> = {
+      id: nodeId,
+      type: 'fan_out' as CanvasNodeType,
+      position: { x: xPosition, y: 80 },
+      data: {
+        nodeType: 'fan_out' as CanvasNodeType,
+        agentId: '',
+        ticketId,
+        content,
+        groups,
+        items: [],
+      },
+    };
+
+    const newEdges = [...edges];
+    if (nodes.length > 0) {
+      const prevNode = [...nodes].reverse().find((n) => !n.data.isGhost) ?? nodes[nodes.length - 1];
+      newEdges.push({
+        id: `${prevNode.id}->${nodeId}`,
+        source: prevNode.id,
+        target: nodeId,
+        type: 'smoothstep',
+        style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
+      });
+    }
+
+    set({ nodes: [...nodes, newNode], edges: newEdges, laneAssignments: newLaneAssignments });
+    debouncedPersistCanvas(get);
+  },
+
+  addFanInNode: (ticketId, mergeStatus) => {
+    const { nodes, edges } = get();
+
+    // Find the max x position across all non-ghost nodes + spacing
+    const nonGhostNodes = nodes.filter((n) => !n.data.isGhost);
+    const maxX = nonGhostNodes.length > 0
+      ? Math.max(...nonGhostNodes.map((n) => n.position.x))
+      : 0;
+    const xPosition = maxX + NODE_HORIZONTAL_SPACING;
+    const nodeId = `fan-in-${Date.now()}`;
+
+    const newNode: Node<CanvasNodeData> = {
+      id: nodeId,
+      type: 'fan_in' as CanvasNodeType,
+      position: { x: xPosition, y: 80 },
+      data: {
+        nodeType: 'fan_in' as CanvasNodeType,
+        agentId: '',
+        ticketId,
+        content: mergeStatus,
+        mergeStatus,
+        items: [],
+      },
+    };
+
+    const newEdges = [...edges];
+    if (nodes.length > 0) {
+      const prevNode = [...nodes].reverse().find((n) => !n.data.isGhost) ?? nodes[nodes.length - 1];
+      newEdges.push({
+        id: `${prevNode.id}->${nodeId}`,
+        source: prevNode.id,
+        target: nodeId,
+        type: 'smoothstep',
+        style: { stroke: '#a1a1aa', strokeWidth: 1.5 },
+      });
+    }
+
+    set({ nodes: [...nodes, newNode], edges: newEdges, laneAssignments: {} });
+    debouncedPersistCanvas(get);
+  },
+
   setAwaiting: (question, sessionId) => {
     set({ awaitingQuestion: question, awaitingSessionId: sessionId });
   },
@@ -492,7 +601,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   clearCanvas: () => {
-    set({ nodes: [], edges: [] });
+    set({ nodes: [], edges: [], laneAssignments: {} });
     debouncedPersistCanvas(get);
   },
 }));

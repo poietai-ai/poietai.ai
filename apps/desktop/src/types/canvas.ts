@@ -16,6 +16,7 @@ export interface CanvasNodePayload {
   agent_id: string;
   ticket_id: string;
   kind: AgentEventKind;
+  group_id?: string;
 }
 
 // Visual node types rendered by @xyflow/react
@@ -35,7 +36,9 @@ export type CanvasNodeType =
   | 'qa_result'
   | 'security_result'
   | 'review_synthesis'
-  | 'status_update';
+  | 'status_update'
+  | 'fan_out'
+  | 'fan_in';
 
 export interface CanvasNodeData extends Record<string, unknown> {
   nodeType: CanvasNodeType;
@@ -49,6 +52,9 @@ export interface CanvasNodeData extends Record<string, unknown> {
   diff?: string;
   sessionId?: string;
   approved?: boolean;
+  groupId?: string;
+  groups?: { group_id: string; agent_role: string }[];
+  mergeStatus?: string;
   // M2: ghost graph fields
   isGhost?: boolean;      // true = plan task not yet executed
   activated?: boolean;    // true = agent has touched this file

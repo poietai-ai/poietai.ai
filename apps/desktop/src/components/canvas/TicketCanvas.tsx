@@ -45,6 +45,28 @@ export function TicketCanvas({ ticketId }: TicketCanvasProps) {
     return () => { unlisten.then((fn) => fn()); };
   }, []);
 
+  // Listen for fan-out — add fan-out node to canvas
+  useEffect(() => {
+    const unlisten = listen<{ ticket_id: string; groups: { group_id: string; agent_role: string }[] }>(
+      'orchestrator-fan-out',
+      (event) => {
+        useCanvasStore.getState().addFanOutNode(event.payload.ticket_id, event.payload.groups);
+      },
+    );
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  // Listen for fan-in — add merge result node to canvas
+  useEffect(() => {
+    const unlisten = listen<{ ticket_id: string; merge_status: string }>(
+      'orchestrator-fan-in',
+      (event) => {
+        useCanvasStore.getState().addFanInNode(event.payload.ticket_id, event.payload.merge_status);
+      },
+    );
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
   const hiddenNodeCategories = useSettingsStore((s) => s.hiddenNodeCategories);
 
   // Build a set of hidden node type strings from the hidden categories
