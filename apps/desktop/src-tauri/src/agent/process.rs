@@ -15,6 +15,7 @@ pub struct CanvasNodePayload {
     pub agent_id: String,
     pub ticket_id: String,
     pub kind: AgentEvent,
+    pub group_id: Option<String>,
 }
 
 /// Payload emitted when the agent run completes.
@@ -43,6 +44,9 @@ pub struct AgentRunConfig {
     pub resume_session_id: Option<String>,
     /// Port of the Tauri MCP server — written to .claude/settings.json before spawn.
     pub mcp_port: u16,
+    /// Optional group ID for fan-out builds — passed through to CanvasNodePayload
+    /// so the frontend can associate events with a specific task group.
+    pub group_id: Option<String>,
 }
 
 /// Wrap a string in POSIX single quotes for safe embedding in a shell script.
@@ -167,16 +171,19 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
             .map(|sid| format!("--resume {}", sh_quote(sid)))
             .unwrap_or_default();
 
-        // --allowedTools is variadic and must come BEFORE --append-system-prompt
-        // so the flag interrupts the variadic and the prompt isn't consumed.
+        // --allowedTools is variadic and must come BEFORE --mcp-config
+        // so the flag interrupts the variadic.
+        let linux_mcp_path = wsl_to_linux_path(&mcp_config_path);
         let script_content = format!(
             "#!/bin/bash\n\
              exec claude --print --verbose --output-format stream-json \\\n  \
              --allowedTools {} \\\n  \
+             --mcp-config {} \\\n  \
              {} \\\n  \
              --append-system-prompt {} \\\n  \
              {}\n",
             sh_quote(&config.allowed_tools.join(",")),
+            sh_quote(&linux_mcp_path),
             resume_part,
             sh_quote(&config.system_prompt),
             sh_quote(&config.prompt),
@@ -207,13 +214,34 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
         (c, Some(script_win_path))
     };
 
+    // Write MCP config to a temp file for --mcp-config.
+    // Inline JSON strings hit variadic arg parsing issues with claude CLI.
+    // A file path is unambiguous and reliable.
+    let mcp_config_path = config.working_dir.join(".poietai-mcp.json");
+    {
+        let mcp_config = serde_json::json!({
+            "mcpServers": {
+                "poietai": {
+                    "type": "sse",
+                    "url": format!("http://127.0.0.1:{}/sse", config.mcp_port)
+                }
+            }
+        });
+        tokio::fs::write(
+            &mcp_config_path,
+            serde_json::to_string_pretty(&mcp_config).unwrap(),
+        )
+        .await
+        .with_context(|| "failed to write MCP config file")?;
+    }
+
     // On Linux/macOS, run claude directly with separate args — no shell involved.
     //
     // Argument order matters: --allowedTools is variadic (<tools...>) and greedily
     // consumes following non-flag args. We place it BEFORE --append-system-prompt
     // so the flag interrupts the variadic and the prompt arrives as intended.
     //
-    // Order: --allowedTools "..." [--resume "..."] --append-system-prompt "..." "PROMPT"
+    // Order: --allowedTools "..." --mcp-config <file> [--resume "..."] --append-system-prompt "..." "PROMPT"
     #[cfg(not(target_os = "windows"))]
     let (mut cmd, temp_script) = {
         let mut c = Command::new("claude");
@@ -222,7 +250,9 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
             .arg("--output-format")
             .arg("stream-json")
             .arg("--allowedTools")
-            .arg(config.allowed_tools.join(","));
+            .arg(config.allowed_tools.join(","))
+            .arg("--mcp-config")
+            .arg(&mcp_config_path);
         if let Some(ref session_id) = config.resume_session_id {
             c.arg("--resume").arg(session_id);
         }
@@ -287,6 +317,7 @@ pub async fn run(config: AgentRunConfig, app: AppHandle) -> Result<Option<String
                 agent_id: config.agent_id.clone(),
                 ticket_id: config.ticket_id.clone(),
                 kind: event,
+                group_id: config.group_id.clone(),
             };
 
             let _ = app.emit("agent-event", &payload);

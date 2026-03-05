@@ -7,15 +7,14 @@ mod mcp;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 use log::{error, info};
 
 use agent::state::{
-    all_agents, get_agent, new_store, set_status, upsert_agent, AgentState, AgentStatus, StateStore,
+    all_agents, get_agent, new_store, set_chatting, set_status, upsert_agent, AgentState,
+    AgentStatus, StateStore,
 };
-use context::builder::TicketPhase;
-
 /// Global app state — injected into Tauri commands via State<AppState>.
 pub struct AppState {
     pub agents: StateStore,
@@ -33,6 +32,7 @@ fn create_agent(
     name: String,
     role: String,
     personality: String,
+    chat_session_id: Option<String>,
 ) -> Result<(), String> {
     let agent = AgentState {
         id: id.clone(),
@@ -44,6 +44,8 @@ fn create_agent(
         session_id: None,
         worktree_path: None,
         pr_number: None,
+        chat_session_id,
+        chatting: false,
     };
     upsert_agent(&state.agents, agent);
     Ok(())
@@ -82,6 +84,9 @@ pub struct StartAgentPayload {
     /// When set, skip worktree creation and run in this directory instead.
     /// Used by VALIDATE phase to reuse the BUILD agent's worktree.
     pub worktree_path_override: Option<String>,
+    /// Optional JSON plan artifact from the Plan phase — used by the orchestrator
+    /// to determine whether to fan-out the Build phase across parallel task groups.
+    pub plan_artifact: Option<String>,
 }
 
 /// Assign a ticket to an agent and start the Claude process.
@@ -94,17 +99,9 @@ async fn start_agent(
     state: State<'_, AppState>,
     payload: StartAgentPayload,
 ) -> Result<(), String> {
-    let repo_root = PathBuf::from(&payload.repo_root);
     let agents_store = state.agents.clone();
 
     info!("[start_agent] agent={} ticket={} repo={}", payload.agent_id, payload.ticket_id, payload.repo_root);
-
-    // Resolve the ticket phase — deserialise from the lowercase string sent by React.
-    // serde_json::from_str expects a JSON string value, so we wrap in quotes.
-    let phase: TicketPhase = payload.phase
-        .as_deref()
-        .and_then(|p| serde_json::from_str(&format!("\"{}\"", p)).ok())
-        .unwrap_or_default(); // defaults to TicketPhase::Build
 
     // Mark agent as working
     set_status(&agents_store, &payload.agent_id, AgentStatus::Working);
@@ -113,133 +110,44 @@ async fn start_agent(
         upsert_agent(&agents_store, a);
     }
 
-    // Look up agent for name/role (needed for worktree config)
-    let agent = get_agent(&agents_store, &payload.agent_id)
-        .ok_or_else(|| format!("agent '{}' not found", payload.agent_id))?;
+    // Build the OrchestratorInput from the payload — the orchestrator handles
+    // worktree creation, phase prompt appending, and tool set selection internally.
+    let phase_str = payload.phase
+        .as_deref()
+        .unwrap_or("build")
+        .to_string();
 
-    // Create the git worktree, or reuse an override path (e.g. for VALIDATE phase).
-    let (working_dir, env) = if let Some(ref override_path) = payload.worktree_path_override {
-        info!("[start_agent] using worktree override at {}", override_path);
-        // Save the override path so get_worktree_diff and resume_agent can find it
-        if let Some(mut a) = get_agent(&agents_store, &payload.agent_id) {
-            a.worktree_path = Some(override_path.clone());
-            upsert_agent(&agents_store, a);
-        }
-        (PathBuf::from(override_path), vec![])
-    } else {
-        let wt_config = git::worktree::WorktreeConfig {
-            repo_root: repo_root.clone(),
-            ticket_id: payload.ticket_id.clone(),
-            ticket_slug: payload.ticket_slug.clone(),
-            agent_name: agent.name.clone(),
-            agent_email: format!("{}@poietai.ai", agent.role),
-        };
-        info!("[start_agent] creating worktree for ticket={}", payload.ticket_id);
-        let worktree = git::worktree::create(&wt_config)
-            .map_err(|e| {
-                error!("[start_agent] worktree creation failed: {}", e);
-                format!("failed to create worktree: {}", e)
-            })?;
-        info!("[start_agent] worktree created at {:?}", worktree.path);
-        // Save worktree path to agent state
-        if let Some(mut a) = get_agent(&agents_store, &payload.agent_id) {
-            a.worktree_path = Some(worktree.path.to_string_lossy().to_string());
-            upsert_agent(&agents_store, a);
-        }
-        let env = git::worktree::agent_env(&wt_config, &payload.gh_token);
-        (worktree.path, env)
-    };
+    let mcp_port = state.mcp.port;
 
-    // Append a phase-specific instruction section to whatever system prompt React provided.
-    let system_prompt_text = {
-        let phase_section = {
-            // We only need phase_prompt_section here; build a minimal ContextInput just to
-            // call it, since the base system_prompt text already came from React.
-            use context::builder::ContextInput;
-            let dummy = ContextInput {
-                role: "",
-                personality: "",
-                project_name: "",
-                project_stack: "",
-                project_context: "",
-                ticket_number: 0,
-                ticket_title: "",
-                ticket_description: "",
-                ticket_acceptance_criteria: &[],
-                agent_id: "",
-            };
-            dummy.phase_prompt_section(&phase)
-        };
-        if phase_section.is_empty() {
-            payload.system_prompt.clone()
-        } else {
-            format!("{}\n\n{}", payload.system_prompt, phase_section)
-        }
-    };
-
-    let run_config = agent::process::AgentRunConfig {
+    let orchestrator_input = agent::orchestrator::OrchestratorInput {
         agent_id: payload.agent_id.clone(),
         ticket_id: payload.ticket_id.clone(),
+        ticket_slug: payload.ticket_slug.clone(),
         prompt: payload.prompt.clone(),
-        system_prompt: system_prompt_text,
-        allowed_tools: match phase {
-            TicketPhase::Validate | TicketPhase::Qa | TicketPhase::Security => vec![
-                "Read".to_string(),
-                "Grep".to_string(),
-                "Glob".to_string(),
-                "Bash(git:*)".to_string(),
-            ],
-            TicketPhase::Brief
-            | TicketPhase::Design
-            | TicketPhase::Plan
-            | TicketPhase::Build
-            | TicketPhase::Review
-            | TicketPhase::Ship => vec![
-                "Read".to_string(),
-                "Edit".to_string(),
-                "Write".to_string(),
-                "Glob".to_string(),
-                "Grep".to_string(),
-                "Bash(git:*)".to_string(),
-                "Bash(gh:*)".to_string(),
-                "Bash(cargo:*)".to_string(),
-                "Bash(npm:*)".to_string(),
-                "Bash(npx:*)".to_string(),
-                "Bash(node:*)".to_string(),
-                "Bash(pnpm:*)".to_string(),
-                "Bash(yarn:*)".to_string(),
-                "Bash(ls:*)".to_string(),
-                "Bash(mkdir:*)".to_string(),
-                "Bash(cp:*)".to_string(),
-                "Bash(mv:*)".to_string(),
-                "Bash(cat:*)".to_string(),
-                "Bash(echo:*)".to_string(),
-            ],
-        },
-        working_dir: working_dir.clone(),
-        env,
-        resume_session_id: payload.resume_session_id,
-        mcp_port: state.mcp.port,
+        system_prompt: payload.system_prompt.clone(),
+        repo_root: payload.repo_root.clone(),
+        gh_token: payload.gh_token.clone(),
+        phase: phase_str,
+        worktree_path_override: payload.worktree_path_override,
+        plan_artifact: payload.plan_artifact,
+        group_id: None,
     };
 
     let app_clone = app.clone();
     let agents_store_clone = agents_store.clone();
     let agent_id = payload.agent_id.clone();
 
-    info!("[start_agent] spawning claude process for agent={}", payload.agent_id);
+    info!("[start_agent] dispatching to orchestrator for agent={}", payload.agent_id);
 
-    // Spawn the agent run as a background task — this command returns immediately
+    // Spawn the orchestrator run as a background task — this command returns immediately
     tokio::spawn(async move {
-        match agent::process::run(run_config, app_clone).await {
-            Ok(session_id) => {
-                info!("[start_agent] agent={} completed, session={:?}", agent_id, session_id);
-                if let Some(sid) = session_id {
-                    agent::state::save_session_id(&agents_store_clone, &agent_id, &sid);
-                }
+        match agent::orchestrator::run_ticket(orchestrator_input, app_clone, mcp_port).await {
+            Ok(()) => {
+                info!("[start_agent] agent={} orchestrator completed", agent_id);
                 set_status(&agents_store_clone, &agent_id, AgentStatus::Idle);
             }
             Err(e) => {
-                error!("[start_agent] agent={} run failed: {}", agent_id, e);
+                error!("[start_agent] orchestrator failed: {}", e);
                 set_status(&agents_store_clone, &agent_id, AgentStatus::Blocked);
             }
         }
@@ -304,6 +212,7 @@ async fn resume_agent(
         env: vec![],
         resume_session_id: Some(session_id),
         mcp_port: state.mcp.port,
+        group_id: None,
     };
 
     set_status(&agents_store, &agent_id, AgentStatus::Working);
@@ -322,6 +231,128 @@ async fn resume_agent(
             Err(e) => {
                 eprintln!("agent '{}' resume failed: {}", agent_id, e);
                 set_status(&agents_store_clone, &agent_id, AgentStatus::Blocked);
+            }
+        }
+    });
+
+    Ok(())
+}
+
+// ── Chat agent command ────────────────────────────────────────────────────────
+
+/// Payload from React to start a chat session with an agent.
+#[derive(Deserialize)]
+pub struct ChatAgentPayload {
+    pub agent_id: String,
+    pub message: String,
+    /// Full system prompt — only used on cold start (no existing chat_session_id).
+    pub system_prompt: String,
+    /// State deltas injected via --append-system-prompt on resume.
+    pub context_update: String,
+}
+
+/// Start or resume a persistent chat session with an agent.
+///
+/// Lightweight variant of start_agent: no worktree, no ticket, minimal tools.
+/// Uses a stable working directory at $HOME/.poietai/chat/<agent_id>/.
+#[tauri::command]
+async fn chat_agent(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    payload: ChatAgentPayload,
+) -> Result<(), String> {
+    let agents_store = state.agents.clone();
+
+    // Check if already processing a chat message
+    let agent = get_agent(&agents_store, &payload.agent_id)
+        .ok_or_else(|| format!("agent '{}' not found", payload.agent_id))?;
+    if agent.chatting {
+        return Err("agent is already processing a chat message".to_string());
+    }
+
+    set_chatting(&agents_store, &payload.agent_id, true);
+
+    // Determine cold start vs resume
+    let is_cold_start = agent.chat_session_id.is_none();
+
+    // Stable working directory: $HOME/.poietai/chat/<agent_id>/
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let working_dir = PathBuf::from(&home)
+        .join(".poietai")
+        .join("chat")
+        .join(&payload.agent_id);
+
+    // Ensure directory exists
+    std::fs::create_dir_all(&working_dir)
+        .map_err(|e| format!("failed to create chat dir: {}", e))?;
+
+    let (system_prompt, resume_session_id) = if is_cold_start {
+        (payload.system_prompt.clone(), None)
+    } else {
+        // On resume, inject context updates (or empty string if none)
+        (payload.context_update.clone(), agent.chat_session_id.clone())
+    };
+
+    // Wrap messages starting with "/" so the CLI doesn't intercept them as slash commands
+    let prompt = if payload.message.starts_with('/') {
+        format!("User message: {}", payload.message)
+    } else {
+        payload.message.clone()
+    };
+
+    let run_config = agent::process::AgentRunConfig {
+        agent_id: payload.agent_id.clone(),
+        ticket_id: "chat".to_string(),
+        prompt,
+        system_prompt,
+        allowed_tools: vec![
+            "Read".to_string(),
+            "Glob".to_string(),
+            "Grep".to_string(),
+            "mcp__poietai__list_tickets".to_string(),
+            "mcp__poietai__get_ticket_details".to_string(),
+            "mcp__poietai__ask_human".to_string(),
+            "mcp__poietai__status_update".to_string(),
+        ],
+        working_dir,
+        env: vec![],
+        resume_session_id,
+        mcp_port: state.mcp.port,
+        group_id: None,
+    };
+
+    let app_clone = app.clone();
+    let agents_store_clone = agents_store.clone();
+    let agent_id = payload.agent_id.clone();
+
+    info!("[chat_agent] agent={} cold_start={}", agent_id, is_cold_start);
+
+    let app_for_error = app.clone();
+    let agent_id_for_error = payload.agent_id.clone();
+
+    tokio::spawn(async move {
+        match agent::process::run(run_config, app_clone).await {
+            Ok(session_id) => {
+                info!("[chat_agent] agent={} completed, session={:?}", agent_id, session_id);
+                if let Some(ref sid) = session_id {
+                    agent::state::save_chat_session_id(&agents_store_clone, &agent_id, sid);
+                }
+                // No session_id means claude produced no output — likely a startup failure
+                if session_id.is_none() {
+                    let _ = app_for_error.emit("agent-chat-error", serde_json::json!({
+                        "agent_id": agent_id_for_error,
+                        "error": "Agent produced no response. Check MCP server connection.",
+                    }));
+                }
+                set_chatting(&agents_store_clone, &agent_id, false);
+            }
+            Err(e) => {
+                error!("[chat_agent] agent={} chat failed: {}", agent_id, e);
+                let _ = app_for_error.emit("agent-chat-error", serde_json::json!({
+                    "agent_id": agent_id_for_error,
+                    "error": format!("{}", e),
+                }));
+                set_chatting(&agents_store_clone, &agent_id, false);
             }
         }
     });
@@ -355,6 +386,17 @@ async fn answer_agent(
     reply: String,
 ) -> Result<(), String> {
     state.mcp.answer(&agent_id, reply).await
+}
+
+/// Deliver ticket data to a waiting list_tickets MCP call.
+/// Called from React's AppShell when the agent-list-tickets event fires.
+#[tauri::command]
+async fn answer_tickets(
+    state: State<'_, AppState>,
+    request_id: String,
+    data: String,
+) -> Result<(), String> {
+    state.mcp.answer_tickets(&request_id, data).await
 }
 
 /// Get the git diff for an agent's worktree relative to the base branch.
@@ -427,10 +469,11 @@ pub fn run() {
             let port = mcp::bound_port(&listener);
             let mcp = mcp::McpState::new(port);
 
-            // Spawn the axum server — it takes a clone of the pending_questions Arc.
+            // Spawn the axum server — it takes clones of the pending Arcs.
             let pending = mcp.pending_questions.clone();
+            let pending_tickets = mcp.pending_ticket_queries.clone();
             let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(mcp::serve(listener, pending, app_handle));
+            tauri::async_runtime::spawn(mcp::serve(listener, pending, pending_tickets, app_handle));
 
             app.manage(AppState {
                 agents: new_store(),
@@ -446,8 +489,10 @@ pub fn run() {
             get_worktree_diff,
             start_agent,
             resume_agent,
+            chat_agent,
             start_pr_poll,
             answer_agent,
+            answer_tickets,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

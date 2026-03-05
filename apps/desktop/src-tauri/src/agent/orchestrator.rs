@@ -95,6 +95,9 @@ pub struct OrchestratorInput {
     pub phase: String,
     pub worktree_path_override: Option<String>,
     pub plan_artifact: Option<String>,
+    /// Optional group ID — set during fan-out builds so agent events carry the
+    /// group identifier through to the frontend.
+    pub group_id: Option<String>,
 }
 
 // ── Plan artifact types (deserialized from input.plan_artifact JSON) ────────
@@ -308,6 +311,7 @@ pub async fn run_fan_out_build(
             phase: "build".to_string(),
             worktree_path_override: Some(child_path.to_string_lossy().to_string()),
             plan_artifact: input.plan_artifact.clone(),
+            group_id: Some(group.group_id.clone()),
         };
 
         let group_id = group.group_id.clone();
@@ -547,6 +551,7 @@ pub async fn run_phase(
         env,
         resume_session_id: None,
         mcp_port,
+        group_id: input.group_id.clone(),
     };
 
     // Run the agent process and wait for completion
@@ -650,6 +655,7 @@ pub async fn run_ticket(input: OrchestratorInput, app: AppHandle, mcp_port: u16)
                     phase: review_phase.to_string(),
                     worktree_path_override: Some(worktree_path.clone()),
                     plan_artifact: input.plan_artifact.clone(),
+                    group_id: None,
                 };
 
                 let (review_completed, _) = run_phase(&review_input, &app, mcp_port).await?;
