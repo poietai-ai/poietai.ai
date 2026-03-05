@@ -1,8 +1,18 @@
+export interface Conversation {
+  id: string;
+  type: 'dm' | 'channel';
+  name?: string;                 // channels only
+  participants: string[];        // agent IDs (user is always implicit)
+  locked: boolean;               // true = 1:1 (can't add members), false = group
+  createdAt: number;
+  lastMessageAt: number;
+}
+
 export interface DmMessage {
   id: string;
-  threadId: string;            // agentId for DMs, channelId for channels
+  threadId: string;              // Conversation.id
   threadType: 'dm' | 'channel';
-  from: 'agent' | 'user' | 'system';
+  from: string;                  // 'user' | 'system' | 'agent' | <agentId>
   agentId: string;
   agentName: string;
   content: string;
