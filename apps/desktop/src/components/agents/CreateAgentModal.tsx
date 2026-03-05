@@ -34,7 +34,7 @@ export function CreateAgentModal({ onClose }: Props) {
     setCreating(true);
     try {
       const id = crypto.randomUUID();
-      await invoke('create_agent', { id, name: name.trim(), role, personality });
+      await invoke('create_agent', { id, name: name.trim(), role, personality, chatSessionId: null });
       await refresh();
       await persistAgents();
       onClose();

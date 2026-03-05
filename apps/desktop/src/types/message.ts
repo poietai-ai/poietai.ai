@@ -13,6 +13,10 @@ export interface DmMessage {
   timestamp: number;
   resolved?: boolean;
   resolution?: string;
+  parentId?: string;
+  replyCount?: number;
+  lastReplyAt?: number;
+  sessionId?: string;
 }
 
 export interface Channel {

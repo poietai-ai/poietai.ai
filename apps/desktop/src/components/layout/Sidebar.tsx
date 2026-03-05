@@ -39,7 +39,7 @@ export function Sidebar({ activeView, onNavigate, onSettings }: SidebarProps) {
         >
           <Icon size={18} strokeWidth={1.5} />
           {id === 'messages' && totalUnread > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 bg-violet-600 text-white text-[9px] rounded-full min-w-[16px] h-4 flex items-center justify-center font-bold px-1">
+            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full min-w-[18px] h-[18px] flex items-center justify-center font-bold px-1 ring-2 ring-zinc-950">
               {totalUnread > 99 ? '99+' : totalUnread}
             </span>
           )}

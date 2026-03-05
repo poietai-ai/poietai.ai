@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { Titlebar } from './Titlebar';
 import { Sidebar } from './Sidebar';
 import { MainArea } from './MainArea';
 import { ProjectSwitcher } from './ProjectSwitcher';
@@ -371,16 +372,19 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-neutral-900">
-      <ProjectSwitcher />
-      <Sidebar
-        activeView={activeView}
-        onNavigate={setActiveView}
-        onSettings={() => setShowSettings(true)}
-      />
-      <MainArea activeView={activeView} />
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
-      <ToastContainer />
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-neutral-900">
+      <Titlebar />
+      <div className="flex flex-1 min-h-0">
+        <ProjectSwitcher />
+        <Sidebar
+          activeView={activeView}
+          onNavigate={setActiveView}
+          onSettings={() => setShowSettings(true)}
+        />
+        <MainArea activeView={activeView} />
+        {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+        <ToastContainer />
+      </div>
     </div>
   );
 }

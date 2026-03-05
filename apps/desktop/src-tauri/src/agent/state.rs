@@ -29,6 +29,10 @@ pub struct AgentState {
     pub worktree_path: Option<String>,
     /// The open PR number, if one exists.
     pub pr_number: Option<u32>,
+    /// Persistent chat session ID (separate from ticket session_id).
+    pub chat_session_id: Option<String>,
+    /// True while processing a chat message.
+    pub chatting: bool,
 }
 
 /// The shared state store.
@@ -72,6 +76,24 @@ pub fn save_session_id(store: &StateStore, id: &str, session_id: &str) {
     }
 }
 
+/// Persist the chat session ID on an agent after a chat run.
+/// No-op if the agent ID is not found.
+pub fn save_chat_session_id(store: &StateStore, id: &str, session_id: &str) {
+    let mut map = store.lock().unwrap();
+    if let Some(agent) = map.get_mut(id) {
+        agent.chat_session_id = Some(session_id.to_string());
+    }
+}
+
+/// Set the chatting flag on an agent.
+/// No-op if the agent ID is not found.
+pub fn set_chatting(store: &StateStore, id: &str, chatting: bool) {
+    let mut map = store.lock().unwrap();
+    if let Some(agent) = map.get_mut(id) {
+        agent.chatting = chatting;
+    }
+}
+
 /// Update just the status of an agent.
 /// Returns true if the agent was found and updated, false if the ID was not in the store.
 pub fn set_status(store: &StateStore, id: &str, status: AgentStatus) -> bool {
@@ -99,6 +121,8 @@ mod tests {
             session_id: None,
             worktree_path: None,
             pr_number: None,
+            chat_session_id: None,
+            chatting: false,
         }
     }
 

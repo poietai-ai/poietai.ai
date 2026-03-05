@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useMessageStore } from './messageStore';
+import { useMessageStore, getTopLevelMessages, getRepliesForParent } from './messageStore';
 import type { DmMessage, Channel } from '../types/message';
 
 function makeDm(overrides: Partial<DmMessage> = {}): DmMessage {
@@ -23,6 +23,7 @@ beforeEach(() => {
     channels: [],
     unreadCounts: {},
     activeThread: null,
+    openThreadParentId: null,
     loaded: false,
   });
 });
@@ -111,5 +112,86 @@ describe('resolveMessage', () => {
     const thread = useMessageStore.getState().threads['agent-1'];
     expect(thread[0].resolved).toBe(true);
     expect(thread[0].resolution).toBe('Yes, do it');
+  });
+});
+
+describe('threading', () => {
+  it('addMessage with parentId increments parent replyCount and sets lastReplyAt', () => {
+    const parent = makeDm({ id: 'parent-1', content: 'question?' });
+    useMessageStore.getState().addMessage(parent);
+
+    const reply = makeDm({ id: 'reply-1', parentId: 'parent-1', content: 'answer', timestamp: 2000 });
+    useMessageStore.getState().addMessage(reply);
+
+    const thread = useMessageStore.getState().threads['agent-1'];
+    const updatedParent = thread.find((m) => m.id === 'parent-1')!;
+    expect(updatedParent.replyCount).toBe(1);
+    expect(updatedParent.lastReplyAt).toBe(2000);
+  });
+
+  it('increments replyCount on multiple replies', () => {
+    const parent = makeDm({ id: 'parent-2' });
+    useMessageStore.getState().addMessage(parent);
+    useMessageStore.getState().addMessage(makeDm({ id: 'r1', parentId: 'parent-2', timestamp: 3000 }));
+    useMessageStore.getState().addMessage(makeDm({ id: 'r2', parentId: 'parent-2', timestamp: 4000 }));
+
+    const thread = useMessageStore.getState().threads['agent-1'];
+    const updatedParent = thread.find((m) => m.id === 'parent-2')!;
+    expect(updatedParent.replyCount).toBe(2);
+    expect(updatedParent.lastReplyAt).toBe(4000);
+  });
+
+  it('getTopLevelMessages filters out messages with parentId', () => {
+    const msgs: DmMessage[] = [
+      makeDm({ id: 'a' }),
+      makeDm({ id: 'b', parentId: 'a' }),
+      makeDm({ id: 'c' }),
+    ];
+    const topLevel = getTopLevelMessages(msgs);
+    expect(topLevel).toHaveLength(2);
+    expect(topLevel.map((m) => m.id)).toEqual(['a', 'c']);
+  });
+
+  it('getRepliesForParent returns only matching replies', () => {
+    const msgs: DmMessage[] = [
+      makeDm({ id: 'p1' }),
+      makeDm({ id: 'r1', parentId: 'p1' }),
+      makeDm({ id: 'r2', parentId: 'p1' }),
+      makeDm({ id: 'r3', parentId: 'p2' }),
+    ];
+    const replies = getRepliesForParent(msgs, 'p1');
+    expect(replies).toHaveLength(2);
+    expect(replies.map((m) => m.id)).toEqual(['r1', 'r2']);
+  });
+
+  it('setOpenThread sets and clears openThreadParentId', () => {
+    useMessageStore.getState().setOpenThread('msg-123');
+    expect(useMessageStore.getState().openThreadParentId).toBe('msg-123');
+    useMessageStore.getState().setOpenThread(null);
+    expect(useMessageStore.getState().openThreadParentId).toBeNull();
+  });
+
+  it('setActiveThread clears openThreadParentId', () => {
+    useMessageStore.getState().setOpenThread('msg-123');
+    useMessageStore.getState().setActiveThread('agent-1');
+    expect(useMessageStore.getState().openThreadParentId).toBeNull();
+  });
+});
+
+describe('removeMessagesByTicketId', () => {
+  it('removes messages with matching ticketId from all threads', () => {
+    useMessageStore.getState().addMessage(makeDm({ id: 'm1', ticketId: 'ticket-1' }));
+    useMessageStore.getState().addMessage(makeDm({ id: 'm2', ticketId: 'ticket-2' }));
+    useMessageStore.getState().addMessage(makeDm({ id: 'm3', ticketId: 'ticket-1' }));
+    useMessageStore.getState().removeMessagesByTicketId('ticket-1');
+    const thread = useMessageStore.getState().threads['agent-1'];
+    expect(thread).toHaveLength(1);
+    expect(thread[0].id).toBe('m2');
+  });
+
+  it('removes empty threads after filtering', () => {
+    useMessageStore.getState().addMessage(makeDm({ id: 'm1', threadId: 'agent-x', ticketId: 'ticket-1' }));
+    useMessageStore.getState().removeMessagesByTicketId('ticket-1');
+    expect(useMessageStore.getState().threads['agent-x']).toBeUndefined();
   });
 });

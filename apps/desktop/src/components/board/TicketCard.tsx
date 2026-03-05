@@ -1,11 +1,14 @@
 // apps/desktop/src/components/board/TicketCard.tsx
 import { useState } from 'react';
+import { useDraggable } from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 import { invoke } from '@tauri-apps/api/core';
 import { useTicketStore, type Ticket } from '../../store/ticketStore';
 import { useCanvasStore } from '../../store/canvasStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useSecretsStore } from '../../store/secretsStore';
 import { AgentPickerModal } from '../agents/AgentPickerModal';
+import { TicketContextMenu } from './TicketContextMenu';
 import { buildPrompt } from '../../lib/promptBuilder';
 import { parsePlanArtifact } from '../../lib/parsePlanArtifact';
 import type { Agent } from '../../store/agentStore';
@@ -22,13 +25,30 @@ function complexityClass(n: number): string {
 }
 
 export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
-  const { assignTicket, updateTicketStatus } = useTicketStore();
+  const { assignTicket, updateTicketStatus, resetTicket, deleteTicket } = useTicketStore();
   const { setActiveTicket } = useCanvasStore();
   const { projects, activeProjectId } = useProjectStore();
   const { ghToken } = useSecretsStore();
   const [showPicker, setShowPicker] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: ticket.id,
+    data: { ticket },
+  });
+
+  const style = transform
+    ? { transform: CSS.Translate.toString(transform) }
+    : undefined;
 
   const activeProject = projects.find((p) => p.id === activeProjectId);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (isDragging) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
 
   const handleAgentSelected = async (agent: Agent, repoId: string) => {
     setShowPicker(false);
@@ -53,7 +73,7 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
       projectName: project.name,
       projectStack: 'Rust, React 19, Tauri 2, TypeScript',
       projectContext: '',
-      ticketNumber: parseInt(ticket.id.replace('ticket-', ''), 10) || 0,
+      ticketNumber: ticket.number,
       ticketTitle: ticket.title,
       ticketDescription: ticket.description,
       ticketAcceptanceCriteria: ticket.acceptanceCriteria,
@@ -103,13 +123,34 @@ export function TicketCard({ ticket, onOpenCanvas }: TicketCardProps) {
         />
       )}
 
+      {contextMenu && (
+        <TicketContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          actions={[
+            { label: 'Reset ticket', onClick: () => resetTicket(ticket.id) },
+            { label: 'Delete ticket', danger: true, onClick: () => deleteTicket(ticket.id) },
+          ]}
+        />
+      )}
+
       <div
-        className="bg-zinc-800 border border-zinc-700 rounded-lg p-3
-                   hover:border-zinc-600 transition-colors cursor-pointer group"
-        onClick={() => onOpenCanvas(ticket.id)}
+        ref={setNodeRef}
+        {...listeners}
+        {...attributes}
+        style={style}
+        className={`bg-zinc-800 border border-zinc-700 rounded-lg p-3
+                   hover:border-zinc-600 transition-colors cursor-grab group
+                   ${isDragging ? 'opacity-50' : ''}`}
+        onClick={() => { if (!isDragging) onOpenCanvas(ticket.id); }}
+        onContextMenu={handleContextMenu}
       >
         <div className="flex items-start justify-between gap-2 mb-2">
-          <p className="text-zinc-100 text-sm font-medium leading-snug">{ticket.title}</p>
+          <p className="text-zinc-100 text-sm font-medium leading-snug">
+            <span className="text-zinc-500 font-mono mr-1">#{ticket.number}</span>
+            {ticket.title}
+          </p>
           <span
             className={`text-xs px-1.5 py-0.5 rounded font-mono flex-shrink-0 ${complexityClass(ticket.complexity)}`}
           >

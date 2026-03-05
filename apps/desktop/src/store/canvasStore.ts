@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type { Node, Edge } from '@xyflow/react';
 import { applyNodeChanges, type NodeChange } from '@xyflow/react';
-import { load } from '@tauri-apps/plugin-store';
+import { readProjectStore, writeProjectStore } from '../lib/projectFileIO';
+import { getActiveProjectRoot } from './projectStore';
 import type { CanvasNodeData, CanvasNodePayload, CanvasNodeType, AgentEventKind } from '../types/canvas';
 import type { PlanArtifact } from '../types/planArtifact';
 
@@ -31,6 +32,7 @@ interface CanvasStore {
   setAwaiting: (question: string, sessionId: string) => void;
   clearAwaiting: () => void;
   clearCanvas: () => void;
+  resetForProjectSwitch: () => void;
 }
 
 // Horizontal gap between canvas nodes in pixels.
@@ -108,9 +110,7 @@ function nodeIdFromPayload(payload: CanvasNodePayload): string {
 
 const CANVAS_PERSIST_DEBOUNCE_MS = 1000;
 
-async function getCanvasStore() {
-  return load('canvas.json', { defaults: {}, autoSave: true });
-}
+type CanvasData = Record<string, { nodes: Node<CanvasNodeData>[]; edges: Edge[] }>;
 
 /** Strip ReactFlow runtime fields — keep only what we need to restore. */
 function serializeNodes(nodes: Node<CanvasNodeData>[]): Array<{ id: string; type: string; position: { x: number; y: number }; data: CanvasNodeData }> {
@@ -124,9 +124,12 @@ function debouncedPersistCanvas(get: () => CanvasStore) {
   canvasPersistTimer = setTimeout(async () => {
     const { activeTicketId, nodes, edges } = get();
     if (!activeTicketId) return;
+    const root = getActiveProjectRoot();
+    if (!root) return;
     try {
-      const store = await getCanvasStore();
-      await store.set(activeTicketId, { nodes: serializeNodes(nodes), edges });
+      const all = (await readProjectStore<CanvasData>(root, 'canvas.json')) ?? {};
+      all[activeTicketId] = { nodes: serializeNodes(nodes) as Node<CanvasNodeData>[], edges };
+      await writeProjectStore(root, 'canvas.json', all);
     } catch (e) {
       console.warn('failed to persist canvas:', e);
     }
@@ -143,23 +146,30 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   setActiveTicket: (ticketId) => {
     const { activeTicketId, nodes, edges } = get();
+    const root = getActiveProjectRoot();
     // Save current ticket's canvas immediately (not debounced)
-    if (activeTicketId && nodes.length > 0) {
-      getCanvasStore()
-        .then((store) => store.set(activeTicketId, { nodes: serializeNodes(nodes), edges }))
+    if (activeTicketId && nodes.length > 0 && root) {
+      readProjectStore<CanvasData>(root, 'canvas.json')
+        .then((all) => {
+          const updated = all ?? {};
+          updated[activeTicketId] = { nodes: serializeNodes(nodes) as Node<CanvasNodeData>[], edges };
+          return writeProjectStore(root, 'canvas.json', updated);
+        })
         .catch((e) => console.warn('failed to save canvas on switch:', e));
     }
     // Clear canvas and set new ticket
     set({ activeTicketId: ticketId, nodes: [], edges: [], laneAssignments: {} });
     // Load new ticket's canvas
-    getCanvasStore()
-      .then(async (store) => {
-        const saved = await store.get<{ nodes: Node<CanvasNodeData>[]; edges: Edge[] }>(ticketId);
-        if (saved && get().activeTicketId === ticketId) {
-          set({ nodes: saved.nodes, edges: saved.edges });
-        }
-      })
-      .catch((e) => console.warn('failed to load canvas:', e));
+    if (root) {
+      readProjectStore<CanvasData>(root, 'canvas.json')
+        .then((all) => {
+          const saved = all?.[ticketId];
+          if (saved && get().activeTicketId === ticketId) {
+            set({ nodes: saved.nodes, edges: saved.edges });
+          }
+        })
+        .catch((e) => console.warn('failed to load canvas:', e));
+    }
   },
 
   initGhostGraph: (planArtifact) => {
@@ -603,5 +613,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   clearCanvas: () => {
     set({ nodes: [], edges: [], laneAssignments: {} });
     debouncedPersistCanvas(get);
+  },
+
+  resetForProjectSwitch: () => {
+    if (canvasPersistTimer) { clearTimeout(canvasPersistTimer); canvasPersistTimer = null; }
+    set({ nodes: [], edges: [], activeTicketId: null, awaitingQuestion: null, awaitingSessionId: null, laneAssignments: {} });
   },
 }));

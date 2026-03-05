@@ -22,6 +22,8 @@ pub struct McpState {
     pub port: u16,
     pub(crate) pending_questions:
         Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
+    pub(crate) pending_ticket_queries:
+        Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
 }
 
 impl McpState {
@@ -29,6 +31,7 @@ impl McpState {
         Self {
             port,
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
+            pending_ticket_queries: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -46,6 +49,20 @@ impl McpState {
             None => Err(format!("no pending question for agent '{}'", agent_id)),
         }
     }
+
+    /// Deliver ticket data to a waiting list_tickets call.
+    pub async fn answer_tickets(&self, request_id: &str, data: String) -> Result<(), String> {
+        let tx = {
+            let mut pending = self.pending_ticket_queries.lock().await;
+            pending.remove(request_id)
+        };
+        match tx {
+            Some(sender) => sender
+                .send(data)
+                .map_err(|_| "ticket query is no longer waiting".to_string()),
+            None => Err(format!("no pending ticket query for '{}'", request_id)),
+        }
+    }
 }
 
 // ── Axum internal state ───────────────────────────────────────────────────────
@@ -56,6 +73,7 @@ type SseSender = mpsc::Sender<Result<Event, Infallible>>;
 struct ServerState {
     sessions: Arc<Mutex<HashMap<String, SseSender>>>,
     pending_questions: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
+    pending_ticket_queries: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
     app: tauri::AppHandle,
 }
 
@@ -72,11 +90,13 @@ struct SessionQuery {
 pub async fn serve(
     listener: std::net::TcpListener,
     pending_questions: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
+    pending_ticket_queries: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
     app: tauri::AppHandle,
 ) {
     let state = ServerState {
         sessions: Arc::new(Mutex::new(HashMap::new())),
         pending_questions,
+        pending_ticket_queries,
         app,
     };
 
@@ -109,6 +129,23 @@ async fn sse_handler(
             .event("endpoint")
             .data(format!("/message?sessionId={}", session_id))))
         .await;
+
+    // After endpoint, notify the client that tools may have changed since last session.
+    // This causes resumed sessions to re-fetch tools/list and discover new tools.
+    let tx_notify = tx.clone();
+    tokio::spawn(async move {
+        // Small delay so the client finishes its initialize handshake first
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let notification = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/tools/list_changed"
+        });
+        let _ = tx_notify
+            .send(Ok(Event::default()
+                .event("message")
+                .data(serde_json::to_string(&notification).unwrap_or_default())))
+            .await;
+    });
 
     Sse::new(ReceiverStream::new(rx))
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
@@ -249,6 +286,42 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                                 }
                             },
                             "required": ["action", "agent_id"]
+                        }
+                    },
+                    {
+                        "name": "list_tickets",
+                        "description": "Query the live ticket board. Returns all tickets with their number, title, status, phase, and assignees. Use when asked about tickets or to get current board state.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID"
+                                },
+                                "status_filter": {
+                                    "type": "string",
+                                    "description": "Optional: filter by status (backlog, refined, assigned, in_progress, in_review, shipped, blocked)"
+                                }
+                            },
+                            "required": ["agent_id"]
+                        }
+                    },
+                    {
+                        "name": "get_ticket_details",
+                        "description": "Get full details for a specific ticket by number. Returns description, acceptance criteria, status, active phase, all phase artifacts (brief, design, plan, etc.), and assignees. Use when the user asks about a specific ticket.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticket_number": {
+                                    "type": "integer",
+                                    "description": "The ticket number (e.g. 1 for #1)"
+                                },
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID"
+                                }
+                            },
+                            "required": ["ticket_number", "agent_id"]
                         }
                     }
                 ]
@@ -437,6 +510,72 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                     }
                 }
 
+                "list_tickets" | "get_ticket_details" => {
+                    let agent_id = args.get("agent_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    let request_id = uuid::Uuid::new_v4().to_string();
+                    let (tx, rx) = oneshot::channel::<String>();
+                    state
+                        .pending_ticket_queries
+                        .lock()
+                        .await
+                        .insert(request_id.clone(), tx);
+
+                    if tool_name == "get_ticket_details" {
+                        let ticket_number = args.get("ticket_number")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0);
+
+                        let _ = state.app.emit("agent-get-ticket-details", json!({
+                            "request_id": request_id,
+                            "agent_id": agent_id,
+                            "ticket_number": ticket_number,
+                        }));
+                    } else {
+                        let status_filter = args.get("status_filter")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        let _ = state.app.emit("agent-list-tickets", json!({
+                            "request_id": request_id,
+                            "agent_id": agent_id,
+                            "status_filter": status_filter,
+                        }));
+                    }
+
+                    // Short timeout — frontend auto-responds instantly
+                    match tokio::time::timeout(Duration::from_secs(5), rx).await {
+                        Ok(Ok(data)) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": data }],
+                                "isError": false
+                            }
+                        })),
+                        Ok(Err(_)) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": "Error: ticket query channel closed" }],
+                                "isError": true
+                            }
+                        })),
+                        Err(_) => Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{ "type": "text", "text": "Timed out querying ticket board" }],
+                                "isError": true
+                            }
+                        })),
+                    }
+                }
+
                 _ => Some(json!({
                     "jsonrpc": "2.0",
                     "id": id,
@@ -522,6 +661,30 @@ mod tests {
                             },
                             "required": ["action", "agent_id"]
                         }
+                    },
+                    {
+                        "name": "list_tickets",
+                        "description": "Query the live ticket board.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "agent_id": { "type": "string" },
+                                "status_filter": { "type": "string" }
+                            },
+                            "required": ["agent_id"]
+                        }
+                    },
+                    {
+                        "name": "get_ticket_details",
+                        "description": "Get full details for a specific ticket by number.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticket_number": { "type": "integer" },
+                                "agent_id": { "type": "string" }
+                            },
+                            "required": ["ticket_number", "agent_id"]
+                        }
                     }
                 ]
             }
@@ -544,7 +707,7 @@ mod tests {
     fn tools_list_contains_ask_human() {
         let resp = tools_list_response(json!(2));
         let tools = resp["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 6);
         assert_eq!(tools[0]["name"], "ask_human");
     }
 
@@ -626,5 +789,47 @@ mod tests {
         assert!(result.is_ok());
         let received = rx.await.unwrap();
         assert_eq!(received, "use approach A");
+    }
+
+    #[test]
+    fn tools_list_contains_list_tickets() {
+        let resp = tools_list_response(json!(2));
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools[4]["name"], "list_tickets");
+        let required = tools[4]["inputSchema"]["required"]
+            .as_array()
+            .unwrap();
+        let required_strs: Vec<&str> =
+            required.iter().filter_map(|v| v.as_str()).collect();
+        assert!(required_strs.contains(&"agent_id"));
+        assert!(!required_strs.contains(&"status_filter"));
+    }
+
+    #[tokio::test]
+    async fn mcp_state_answer_tickets_delivers() {
+        use tokio::sync::oneshot;
+        let state = super::McpState::new(9999);
+        let (tx, rx) = oneshot::channel::<String>();
+        state
+            .pending_ticket_queries
+            .lock()
+            .await
+            .insert("req-1".to_string(), tx);
+        let result = state
+            .answer_tickets("req-1", "#1: Fix bug [in_progress]".to_string())
+            .await;
+        assert!(result.is_ok());
+        let received = rx.await.unwrap();
+        assert_eq!(received, "#1: Fix bug [in_progress]");
+    }
+
+    #[tokio::test]
+    async fn mcp_state_answer_tickets_err_when_none() {
+        let state = super::McpState::new(9999);
+        let result = state
+            .answer_tickets("nonexistent", "data".to_string())
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("no pending ticket query"));
     }
 }

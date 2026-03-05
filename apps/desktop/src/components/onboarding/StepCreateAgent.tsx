@@ -40,6 +40,7 @@ export function StepCreateAgent({ onComplete, onSkip }: Props) {
         name: name.trim(),
         role,
         personality,
+        chatSessionId: null,
       });
       await refresh();
       await persistAgents();

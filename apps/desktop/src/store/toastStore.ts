@@ -7,7 +7,7 @@ export interface AgentToast {
   agentName: string;
   message: string;
   isQuestion: boolean;
-  ticketId: string;
+  ticketId?: string;
   createdAt: number;
 }
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useTicketStore } from './ticketStore';
 
 beforeEach(() => {
-  useTicketStore.setState({ tickets: [] });
+  useTicketStore.setState({ tickets: [], nextTicketNumber: 1 });
 });
 
 describe('addTicket', () => {
@@ -33,6 +33,17 @@ describe('addTicket', () => {
     expect(tickets).toHaveLength(2);
     expect(tickets[0].id).not.toBe(tickets[1].id);
     expect(tickets[0].status).toBe('backlog');
+  });
+
+  it('assigns incrementing ticket numbers', () => {
+    useTicketStore.getState().addTicket({ title: 'A', description: '', complexity: 1, acceptanceCriteria: [] });
+    useTicketStore.getState().addTicket({ title: 'B', description: '', complexity: 1, acceptanceCriteria: [] });
+    useTicketStore.getState().addTicket({ title: 'C', description: '', complexity: 1, acceptanceCriteria: [] });
+    const tickets = useTicketStore.getState().tickets;
+    expect(tickets[0].number).toBe(1);
+    expect(tickets[1].number).toBe(2);
+    expect(tickets[2].number).toBe(3);
+    expect(useTicketStore.getState().nextTicketNumber).toBe(4);
   });
 });
 
@@ -97,5 +108,63 @@ describe('blockTicket', () => {
 
   it('does nothing for nonexistent ticket id', () => {
     expect(() => useTicketStore.getState().blockTicket('nope')).not.toThrow();
+  });
+});
+
+describe('resetTicket', () => {
+  it('resets status, assignments, activePhase, and artifacts but preserves identity', () => {
+    useTicketStore.getState().addTicket({ title: 'Reset me', description: 'desc', complexity: 5, acceptanceCriteria: ['AC1'] });
+    const id = useTicketStore.getState().tickets[0].id;
+    // Mutate the ticket away from defaults
+    useTicketStore.getState().updateTicketStatus(id, 'in_progress');
+    useTicketStore.getState().assignTicket(id, { agentId: 'agent-1', repoId: 'repo-1' });
+    useTicketStore.getState().setPhaseArtifact(id, { phase: 'brief', content: 'x', createdAt: '2026-01-01' });
+
+    useTicketStore.getState().resetTicket(id);
+    const t = useTicketStore.getState().tickets[0];
+
+    expect(t.status).toBe('backlog');
+    expect(t.assignments).toEqual([]);
+    expect(t.activePhase).toBe(t.phases[0]);
+    expect(t.artifacts).toEqual({});
+    // Preserved fields
+    expect(t.title).toBe('Reset me');
+    expect(t.description).toBe('desc');
+    expect(t.complexity).toBe(5);
+    expect(t.acceptanceCriteria).toEqual(['AC1']);
+  });
+});
+
+describe('deleteTicket', () => {
+  it('removes the ticket from the list', () => {
+    useTicketStore.getState().addTicket({ title: 'A', description: '', complexity: 1, acceptanceCriteria: [] });
+    useTicketStore.getState().addTicket({ title: 'B', description: '', complexity: 1, acceptanceCriteria: [] });
+    const idA = useTicketStore.getState().tickets[0].id;
+    useTicketStore.getState().deleteTicket(idA);
+    expect(useTicketStore.getState().tickets).toHaveLength(1);
+    expect(useTicketStore.getState().tickets[0].title).toBe('B');
+  });
+
+  it('clears selectedTicketId if deleted ticket was selected', () => {
+    useTicketStore.getState().addTicket({ title: 'A', description: '', complexity: 1, acceptanceCriteria: [] });
+    const id = useTicketStore.getState().tickets[0].id;
+    useTicketStore.getState().selectTicket(id);
+    expect(useTicketStore.getState().selectedTicketId).toBe(id);
+    useTicketStore.getState().deleteTicket(id);
+    expect(useTicketStore.getState().selectedTicketId).toBeNull();
+  });
+});
+
+describe('updateTicketStatus', () => {
+  it('returns the old status', () => {
+    useTicketStore.getState().addTicket({ title: 'T', description: '', complexity: 2, acceptanceCriteria: [] });
+    const id = useTicketStore.getState().tickets[0].id;
+    const old = useTicketStore.getState().updateTicketStatus(id, 'refined');
+    expect(old).toBe('backlog');
+  });
+
+  it('returns undefined for nonexistent ticket', () => {
+    const old = useTicketStore.getState().updateTicketStatus('nope', 'refined');
+    expect(old).toBeUndefined();
   });
 });

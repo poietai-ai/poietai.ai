@@ -1,7 +1,10 @@
 // apps/desktop/src/store/ticketStore.ts
 import { create } from 'zustand';
-import { load } from '@tauri-apps/plugin-store';
+import { readProjectStore, writeProjectStore } from '../lib/projectFileIO';
+import { getActiveProjectRoot } from './projectStore';
 import { phasesForComplexity, nextPhase } from '../lib/phaseRouter';
+import { useCanvasStore } from './canvasStore';
+import { useMessageStore } from './messageStore';
 
 export type TicketStatus =
   | 'backlog' | 'refined' | 'assigned'
@@ -25,6 +28,7 @@ export interface Assignment {
 
 export interface Ticket {
   id: string;
+  number: number;
   title: string;
   description: string;
   complexity: number; // 1-10
@@ -38,63 +42,46 @@ export interface Ticket {
 
 interface TicketStore {
   tickets: Ticket[];
+  nextTicketNumber: number;
   selectedTicketId: string | null;
   loaded: boolean;
   isLoading: boolean;
 
   loadFromDisk: () => Promise<void>;
   addTicket: (input: { title: string; description: string; complexity: number; acceptanceCriteria: string[] }) => void;
-  updateTicketStatus: (id: string, status: TicketStatus) => void;
+  updateTicketStatus: (id: string, status: TicketStatus) => TicketStatus | undefined;
   assignTicket: (ticketId: string, assignment: Assignment) => void;
   selectTicket: (id: string | null) => void;
   advanceTicketPhase: (id: string) => void;
   setPhaseArtifact: (id: string, artifact: Artifact) => void;
   blockTicket: (id: string) => void;
+  resetTicket: (id: string) => void;
+  deleteTicket: (id: string) => void;
+  resetForProjectSwitch: () => void;
 }
 
-const DEMO_TICKETS: Ticket[] = [
-  {
-    id: 'ticket-1',
-    title: 'Fix nil guard in billing service',
-    description: 'The subscription pointer is not checked before token deduction. Under certain conditions this can panic at runtime.',
-    complexity: 3,
-    status: 'refined',
-    assignments: [],
-    acceptanceCriteria: [
-      'Subscription is guarded before token deduction',
-      'Existing billing tests still pass',
-      'New test covers the nil/missing case',
-    ],
-    phases: phasesForComplexity(3) as TicketPhase[],
-    activePhase: (phasesForComplexity(3) as TicketPhase[])[0],
-    artifacts: {},
-  },
-  {
-    id: 'ticket-2',
-    title: 'Add loading state to dashboard metrics',
-    description: 'Dashboard metrics flash undefined while fetching. Show a skeleton loader instead.',
-    complexity: 2,
-    status: 'backlog',
-    assignments: [],
-    acceptanceCriteria: [
-      'Skeleton loader shows during fetch',
-      'No layout shift when data loads',
-    ],
-    phases: phasesForComplexity(2) as TicketPhase[],
-    activePhase: (phasesForComplexity(2) as TicketPhase[])[0],
-    artifacts: {},
-  },
-];
-
-async function getTicketStore() {
-  return load('tickets.json', { defaults: {}, autoSave: true });
+async function clearPersistedCanvas(ticketId: string) {
+  try {
+    const root = getActiveProjectRoot();
+    if (!root) return;
+    const all = await readProjectStore<Record<string, unknown>>(root, 'canvas.json');
+    if (!all) return;
+    delete all[ticketId];
+    await writeProjectStore(root, 'canvas.json', all);
+  } catch (e) {
+    console.warn('failed to clear persisted canvas:', e);
+  }
 }
 
 async function persistTickets(get: () => TicketStore) {
+  const root = getActiveProjectRoot();
+  if (!root) return;
   try {
-    const store = await getTicketStore();
-    await store.set('tickets', get().tickets);
-    await store.set('selectedTicketId', get().selectedTicketId);
+    await writeProjectStore(root, 'tickets.json', {
+      tickets: get().tickets,
+      selectedTicketId: get().selectedTicketId,
+      nextTicketNumber: get().nextTicketNumber,
+    });
   } catch (e) {
     console.warn('failed to persist tickets:', e);
   }
@@ -102,6 +89,7 @@ async function persistTickets(get: () => TicketStore) {
 
 export const useTicketStore = create<TicketStore>((set, get) => ({
   tickets: [],
+  nextTicketNumber: 1,
   selectedTicketId: null,
   loaded: false,
   isLoading: false,
@@ -110,13 +98,39 @@ export const useTicketStore = create<TicketStore>((set, get) => ({
     if (get().loaded || get().isLoading) return;
     set({ isLoading: true });
     try {
-      const store = await getTicketStore();
-      const tickets = (await store.get<Ticket[]>('tickets')) ?? DEMO_TICKETS;
-      const selectedTicketId = (await store.get<string>('selectedTicketId')) ?? null;
-      set({ tickets, selectedTicketId, loaded: true, isLoading: false });
+      const root = getActiveProjectRoot();
+      if (!root) {
+        set({ tickets: [], nextTicketNumber: 1, selectedTicketId: null, loaded: true, isLoading: false });
+        return;
+      }
+      const saved = await readProjectStore<{
+        tickets: Ticket[];
+        selectedTicketId: string | null;
+        nextTicketNumber: number;
+      }>(root, 'tickets.json');
+
+      const tickets = saved?.tickets ?? [];
+      const selectedTicketId = saved?.selectedTicketId ?? null;
+      let nextTicketNumber = saved?.nextTicketNumber ?? 0;
+
+      // Migrate legacy tickets that lack a number field
+      let migrated = false;
+      const migratedTickets = tickets.map((t: Ticket, i: number) => {
+        if (typeof t.number !== 'number') {
+          migrated = true;
+          return { ...t, number: i + 1 };
+        }
+        return t;
+      });
+      if (nextTicketNumber === 0 || migrated) {
+        nextTicketNumber = migratedTickets.length > 0
+          ? Math.max(...migratedTickets.map((t: Ticket) => t.number)) + 1
+          : 1;
+      }
+      set({ tickets: migratedTickets, selectedTicketId, nextTicketNumber, loaded: true, isLoading: false });
     } catch (e) {
       console.warn('failed to load tickets:', e);
-      set({ tickets: DEMO_TICKETS, loaded: true, isLoading: false });
+      set({ tickets: [], nextTicketNumber: 1, loaded: true, isLoading: false });
     }
   },
 
@@ -125,6 +139,7 @@ export const useTicketStore = create<TicketStore>((set, get) => ({
       const phases = phasesForComplexity(input.complexity) as TicketPhase[];
       const ticket: Ticket = {
         id: crypto.randomUUID(),
+        number: state.nextTicketNumber,
         title: input.title,
         description: input.description,
         complexity: input.complexity,
@@ -135,16 +150,18 @@ export const useTicketStore = create<TicketStore>((set, get) => ({
         activePhase: phases[0],
         artifacts: {},
       };
-      return { tickets: [...state.tickets, ticket] };
+      return { tickets: [...state.tickets, ticket], nextTicketNumber: state.nextTicketNumber + 1 };
     });
     persistTickets(get);
   },
 
   updateTicketStatus: (id, status) => {
+    const oldStatus = get().tickets.find((t) => t.id === id)?.status;
     set((s) => ({
       tickets: s.tickets.map((t) => (t.id === id ? { ...t, status } : t)),
     }));
     persistTickets(get);
+    return oldStatus;
   },
 
   assignTicket: (ticketId, assignment) => {
@@ -190,5 +207,43 @@ export const useTicketStore = create<TicketStore>((set, get) => ({
       tickets: s.tickets.map((t) => (t.id === id ? { ...t, status: 'blocked' as TicketStatus } : t)),
     }));
     persistTickets(get);
+  },
+
+  resetTicket: (id) => {
+    set((s) => ({
+      tickets: s.tickets.map((t) => {
+        if (t.id !== id) return t;
+        return {
+          ...t,
+          status: 'backlog' as TicketStatus,
+          assignments: [],
+          activePhase: t.phases[0],
+          artifacts: {},
+        };
+      }),
+    }));
+    persistTickets(get);
+    // Clear canvas nodes for this ticket (in-memory + persisted)
+    const canvas = useCanvasStore.getState();
+    if (canvas.activeTicketId === id) canvas.clearCanvas();
+    clearPersistedCanvas(id);
+    // Clear messages tagged with this ticket
+    useMessageStore.getState().removeMessagesByTicketId(id);
+  },
+
+  deleteTicket: (id) => {
+    set((s) => ({
+      tickets: s.tickets.filter((t) => t.id !== id),
+      selectedTicketId: s.selectedTicketId === id ? null : s.selectedTicketId,
+    }));
+    persistTickets(get);
+    // Clear canvas nodes for this ticket (in-memory + persisted)
+    const canvas = useCanvasStore.getState();
+    if (canvas.activeTicketId === id) canvas.clearCanvas();
+    clearPersistedCanvas(id);
+  },
+
+  resetForProjectSwitch: () => {
+    set({ tickets: [], nextTicketNumber: 1, selectedTicketId: null, loaded: false, isLoading: false });
   },
 }));

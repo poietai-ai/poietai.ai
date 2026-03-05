@@ -8,6 +8,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use tauri::{Emitter, Manager, State};
+use std::io::Write;
 
 use log::{error, info};
 
@@ -438,6 +439,46 @@ fn get_worktree_diff(
     String::from_utf8(fallback.stdout).map_err(|e| e.to_string())
 }
 
+// ── Project-scoped file store commands ─────────────────────────────────────────
+
+/// Read a JSON file from `<project_root>/.poietai/<filename>`.
+/// Returns `None` if the file doesn't exist.
+#[tauri::command]
+fn read_project_store(project_root: String, filename: String) -> Result<Option<String>, String> {
+    let path = PathBuf::from(&project_root).join(".poietai").join(&filename);
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("failed to read {}: {}", path.display(), e)),
+    }
+}
+
+/// Write a JSON file to `<project_root>/.poietai/<filename>` atomically.
+/// Creates the `.poietai/` directory if it doesn't exist.
+/// Uses write-to-tmp + rename to prevent corruption on crash.
+#[tauri::command]
+fn write_project_store(project_root: String, filename: String, data: String) -> Result<(), String> {
+    let dir = PathBuf::from(&project_root).join(".poietai");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("failed to create .poietai dir: {}", e))?;
+
+    let target = dir.join(&filename);
+    let tmp = dir.join(format!("{}.tmp", filename));
+
+    let mut file = std::fs::File::create(&tmp)
+        .map_err(|e| format!("failed to create tmp file: {}", e))?;
+    file.write_all(data.as_bytes())
+        .map_err(|e| format!("failed to write tmp file: {}", e))?;
+    file.sync_all()
+        .map_err(|e| format!("failed to sync tmp file: {}", e))?;
+    drop(file);
+
+    std::fs::rename(&tmp, &target)
+        .map_err(|e| format!("failed to rename tmp → target: {}", e))?;
+
+    Ok(())
+}
+
 // ── App entry point ───────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -493,6 +534,8 @@ pub fn run() {
             start_pr_poll,
             answer_agent,
             answer_tickets,
+            read_project_store,
+            write_project_store,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

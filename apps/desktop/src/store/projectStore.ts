@@ -82,11 +82,41 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     await store.set('projects', updated);
     await store.set('activeProjectId', project.id);
     set({ projects: updated, activeProjectId: project.id });
+
+    // Reload project-scoped stores for the new project
+    await reloadProjectScopedStores();
   },
 
   switchProject: async (id) => {
     const store = await getStore();
     await store.set('activeProjectId', id);
     set({ activeProjectId: id });
+
+    // Reset and reload project-scoped stores
+    await reloadProjectScopedStores();
   },
 }));
+
+/** Get the root directory of the active project (first repo's root). Returns null if no project is active. */
+export function getActiveProjectRoot(): string | null {
+  const { projects, activeProjectId } = useProjectStore.getState();
+  if (!activeProjectId) return null;
+  const project = projects.find((p) => p.id === activeProjectId);
+  if (!project || project.repos.length === 0) return null;
+  return project.repos[0].repoRoot;
+}
+
+/** Reset and reload ticket/canvas/message stores after a project switch. */
+async function reloadProjectScopedStores() {
+  // Lazy imports to avoid circular dependency at module evaluation time
+  const { useTicketStore } = await import('./ticketStore');
+  const { useCanvasStore } = await import('./canvasStore');
+  const { useMessageStore } = await import('./messageStore');
+
+  useTicketStore.getState().resetForProjectSwitch();
+  useCanvasStore.getState().resetForProjectSwitch();
+  useMessageStore.getState().resetForProjectSwitch();
+
+  await useTicketStore.getState().loadFromDisk();
+  await useMessageStore.getState().loadFromDisk();
+}

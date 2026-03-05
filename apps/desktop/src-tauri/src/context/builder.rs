@@ -214,6 +214,15 @@ pub fn build(input: &ContextInput, phase: &TicketPhase) -> String {
         You have an `ask_human` tool available via the poietai MCP server.\n\
         Use it when you need clarification that would meaningfully change your approach.\n\
         Always call it with agent_id=\"{agent_id}\" exactly.\n\n\
+        ## Communication Style\n\
+        Your text output is shown in a Slack-style DM thread with the user.\n\
+        Write like a teammate posting quick updates — not like an AI writing a report.\n\
+        - Be brief and casual. \"Found the bug — getTotal() doesn't multiply by qty. Quick fix.\" not \"I have identified the issue. The getTotal() function...\"\n\
+        - Skip narration. Don't say \"Let me look at the code\" or \"I'll now examine\". Just do it.\n\
+        - When sharing findings, lead with the punchline. \"Two bugs in cart.ts: line 31 and 36\" not a paragraph of context.\n\
+        - Use code blocks for code, but keep surrounding text conversational.\n\
+        - Don't bullet-point everything. Write sentences like a person would in Slack.\n\
+        - Never start with \"I\" — rephrase. \"Looks like the reduce is missing qty\" not \"I found that the reduce is missing qty\".\n\n\
         ## Working Instructions\n\
         - Commit your changes with clear messages as you work\n\
         - When ready to create a PR, use: gh pr create --title \"...\" --body \"...\"\n\

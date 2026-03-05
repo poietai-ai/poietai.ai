@@ -14,9 +14,11 @@ export interface Agent {
   session_id?: string;
   worktree_path?: string;
   pr_number?: number;
+  chat_session_id?: string;
+  chatting?: boolean;
 }
 
-type AgentIdentity = Pick<Agent, 'id' | 'name' | 'role' | 'personality'>;
+type AgentIdentity = Pick<Agent, 'id' | 'name' | 'role' | 'personality' | 'chat_session_id'>;
 
 let _store: Store | null = null;
 async function getStore() {
@@ -64,7 +66,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   persistAgents: async () => {
     const store = await getStore();
     const identities: AgentIdentity[] = get().agents.map(
-      ({ id, name, role, personality }) => ({ id, name, role, personality })
+      ({ id, name, role, personality, chat_session_id }) => ({ id, name, role, personality, chat_session_id })
     );
     await store.set('agents', identities);
     await store.save();
@@ -73,9 +75,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   restoreAgents: async () => {
     const store = await getStore();
     const saved = (await store.get<AgentIdentity[]>('agents')) ?? [];
-    for (const { id, name, role, personality } of saved) {
+    for (const { id, name, role, personality, chat_session_id } of saved) {
       try {
-        await invoke('create_agent', { id, name, role, personality });
+        await invoke('create_agent', { id, name, role, personality, chatSessionId: chat_session_id ?? null });
       } catch {
         // Already exists in this session — skip.
       }
