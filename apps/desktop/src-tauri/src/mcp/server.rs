@@ -438,6 +438,33 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                             },
                             "required": ["agent_id", "answer"]
                         }
+                    },
+                    {
+                        "name": "message_agent",
+                        "description": "Send a message to another agent. Creates a DM conversation if one doesn't exist. Non-blocking — returns immediately.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "to": {
+                                    "type": "array",
+                                    "items": { "type": "string" },
+                                    "description": "Recipient agent ID(s)"
+                                },
+                                "message": {
+                                    "type": "string",
+                                    "description": "The message to send"
+                                },
+                                "agent_id": {
+                                    "type": "string",
+                                    "description": "Your agent ID, exactly as given in your system prompt"
+                                },
+                                "conversation_id": {
+                                    "type": "string",
+                                    "description": "Optional — reuse an existing conversation thread"
+                                }
+                            },
+                            "required": ["to", "message", "agent_id"]
+                        }
                     }
                 ]
             }
@@ -767,6 +794,41 @@ async fn handle_jsonrpc(state: &ServerState, body: Value) -> Option<Value> {
                         "id": id,
                         "result": {
                             "content": [{ "type": "text", "text": result_text }],
+                            "isError": false
+                        }
+                    }))
+                }
+
+                "message_agent" => {
+                    let agent_id = args.get("agent_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let message = args.get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let to: Vec<String> = args.get("to")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                        .unwrap_or_default();
+                    let conversation_id = args.get("conversation_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+
+                    // Emit to frontend — it handles conversation creation and wake
+                    let _ = state.app.emit("agent-message", json!({
+                        "from_agent_id": agent_id,
+                        "to": to,
+                        "message": message,
+                        "conversation_id": conversation_id,
+                    }));
+
+                    Some(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{ "type": "text", "text": "Message sent." }],
                             "isError": false
                         }
                     }))
